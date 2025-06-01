@@ -81,16 +81,6 @@ export class JetstreamDistributedLock implements IDistributedLock {
     this.state.clear()
   }
 
-  public async wait<T>(key: string, timeoutMs: number): Promise<Readable<T>> {
-    const namespacedKey = this.toNamespacedKey(key)
-
-    const lockState = await new Promise<LockState | undefined>((resolve, reject) => 
-        this.resolveOnUnlock.bind(this)(namespacedKey, timeoutMs, resolve, reject))
-
-    const value = lockState?.value ? jsonCodec.decode(lockState.value) as T : null
-    return { value }
-  }
-
   public async withLock<T>(
     key: string,
     timeoutMs: number,
@@ -110,29 +100,6 @@ export class JetstreamDistributedLock implements IDistributedLock {
     }
   }
 
-  // move to johnny cache
-  public async buildOrRetrieve<T>(
-    key: string,
-    timeoutMs: number,
-    buildFunc: () => Promise<T>
-  ): Promise<Readable<T> > {
-    this.checkActive()
-
-    // this either returns null immediately, or waits for / retrieves an existing value
-    const value = await this.wait<T>(key, timeoutMs)
-    if (value) {
-        return value
-    }
-
-    return await this.withLock(key, timeoutMs, async (state) => {
-        if (state) {
-            return state
-        } else {
-            return await buildFunc()
-        }
-    })
-  }
-
   public async acquireLock<T>(key: string, timeoutMs: number): Promise<Writable<T>> {
     this.checkActive()
     const namespacedKey = this.toNamespacedKey(key)
@@ -150,6 +117,7 @@ export class JetstreamDistributedLock implements IDistributedLock {
 
         return {value: lockObj, lockId: lock.lockId!}
       } catch {
+        // suppress timeouts and lock acquire failures, retry 
         now = Date.now()
       }
     }
@@ -180,6 +148,16 @@ export class JetstreamDistributedLock implements IDistributedLock {
     }
 
     return false
+  }
+
+  public async wait<T>(key: string, timeoutMs: number): Promise<Readable<T>> {
+    const namespacedKey = this.toNamespacedKey(key)
+
+    const lockState = await new Promise<LockState | undefined>((resolve, reject) => 
+        this.resolveOnUnlock.bind(this)(namespacedKey, timeoutMs, resolve, reject))
+
+    const value = lockState?.value ? jsonCodec.decode(lockState.value) as T : null
+    return { value }
   }
 
   private async createOrUpdateLock(namespacedKey: string, lockState: LockState | undefined): Promise<LockState> {
