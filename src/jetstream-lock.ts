@@ -1,0 +1,277 @@
+import { KV, QueuedIterator, KvEntry, NatsConnection, JSONCodec } from 'nats'
+import { LockConfiguration, TimeoutError, Writable } from './types'
+import { Readable } from './types'
+import { IDistributedLock } from './types'
+
+const jsonCodec = JSONCodec()
+
+type LockStatus = 'locked' | 'unlocked' | 'expired'
+interface LockMessage {
+    status: LockStatus
+    lockId?: string,
+    value?: Uint8Array
+}
+interface LockState extends LockMessage {
+    revision?: number
+    timestamp: number
+}
+
+type MessageHandler = (lockState: LockState) => Promise<void>
+interface SynchronizedObject {
+    watchers: Map<string, MessageHandler>
+    state: LockState
+}
+
+export class JetstreamDistributedLock implements IDistributedLock {
+  private state = new Map<string, SynchronizedObject>()
+  private watch: QueuedIterator<KvEntry> | undefined
+  private active = false
+  private initialized = false
+
+  constructor(private readonly kv: KV, private readonly config: LockConfiguration) { }
+  
+  async initialize(
+    resolve: () => void,
+    reject: (reason?: unknown) => void
+  ): Promise<void> {
+    try {
+      if (this.initialized) {
+        throw new Error('JetstreamDistributedLock already initialized')
+      }
+
+      const watch = await this.kv.watch({
+        key: `${this.config.namespace}.>`,
+        initializedFn: () => {
+          this.active = true
+          this.initialized = true
+          resolve()
+        }
+      })
+      this.watch = watch
+
+      ;(async () => {
+        for await (const entry of watch) {
+          if (this.initialized && !this.active) {
+            throw new Error('JetstreamDistributedLock closed')
+          }
+          this.processEntry(entry)
+        }
+      }).bind(this)().catch(reject)
+    } catch (error) {
+      reject(error)
+    }
+  }
+
+  private processEntry(entry: KvEntry): void {
+    try {
+      const lockState = entry.operation === 'PUT'
+        ? jsonCodec.decode(entry.value) as LockMessage
+        : {status: 'expired'} as LockMessage
+
+      this.updateLocalState(entry.key, lockState, entry.revision)
+    } catch (error) {
+      console.error(`Could not process entry ${entry.key}, revision: ${entry.revision}, error: ${error}`)
+    }
+  }
+
+  public close(): void {
+    this.watch?.stop()
+    this.active = false
+
+    this.state.clear()
+  }
+
+  public async waitFor<T>(key: string, timeoutMs: number): Promise<Readable<T>> {
+    const namespacedKey = this.toNamespacedKey(key)
+
+    const lockState = await new Promise<LockState | undefined>((resolve, reject) => 
+        this.resolveOnUnlock.bind(this)(namespacedKey, timeoutMs, resolve, reject))
+
+    const value = lockState?.value ? jsonCodec.decode(lockState.value) as T : null
+    return { value }
+  }
+
+  public async withLock<T>(
+    key: string,
+    timeoutMs: number,
+    callback: (state: T| null) => Promise<T>
+  ): Promise<Readable<T>> {
+    const lock = await this.acquireLock<T>(key, timeoutMs)
+
+    try {
+        const updatedState = await callback(lock.value) 
+        await this.releaseLock(key, {value: updatedState, lockId: lock.lockId!})
+        
+        return {value: updatedState} 
+    } catch(error) {
+        await this.releaseLock(key, lock)
+
+        throw error
+    }
+  }
+
+  // move to johnny cache
+  public async buildOrRetrieve<T>(
+    key: string,
+    timeoutMs: number,
+    buildFunc: () => Promise<T>
+  ): Promise<Readable<T> > {
+    this.checkActive()
+
+    // this either returns null immediately, or waits for / retrieves an existing value
+    const value = await this.waitFor<T>(key, timeoutMs)
+    if (value) {
+        return value
+    }
+
+    return await this.withLock(key, timeoutMs, async (state) => {
+        if (state) {
+            return state
+        } else {
+            return await buildFunc()
+        }
+    })
+  }
+
+  public async acquireLock<T>(key: string, timeoutMs: number): Promise<Writable<T>> {
+    this.checkActive()
+    const namespacedKey = this.toNamespacedKey(key)
+
+    let now = Date.now()
+    const deadline = now + timeoutMs
+
+    while (now <= deadline) {
+      try {
+        const lockState = await new Promise<LockState | undefined>((resolve, reject) => 
+            this.resolveOnUnlock.bind(this)(namespacedKey, timeoutMs, resolve, reject))
+
+        const lock = await this.createOrUpdateLock(namespacedKey, lockState)
+        const lockObj = lock.value ? jsonCodec.decode(lock.value) as T : null
+
+        return {value: lockObj, lockId: lock.lockId!}
+      } catch {
+        now = Date.now()
+      }
+    }
+
+    throw new TimeoutError(namespacedKey)
+  }
+
+  public async releaseLock<T>(key: string, lockObj: Writable<T>): Promise<boolean> {
+    const namespacedKey = this.toNamespacedKey(key)
+    
+    const lockState = this.state.get(namespacedKey)
+    if (lockState && this.isLockActive(lockState.state) && lockState.state.lockId === lockObj.lockId) {
+        const newLock = {
+            status: 'unlocked' as LockStatus,
+            lockId: lockObj.lockId,
+            value: lockObj.value ? jsonCodec.encode(lockObj.value) : undefined
+        } as LockMessage
+    
+        try {
+          const revision = await this.kv.update(namespacedKey, jsonCodec.encode(newLock), lockState.state.revision!)
+
+          this.updateLocalState(namespacedKey, newLock, revision)
+          return true
+        } catch (error) {
+          console.error(`Could not release lock ${namespacedKey}, error: ${error}`)
+          return false
+        }
+    }
+
+    return false
+  }
+
+  private async createOrUpdateLock(namespacedKey: string, lockState: LockState | undefined): Promise<LockState> {
+    const newLock = {
+        status: 'locked' as LockStatus,
+        lockId: crypto.randomUUID(),
+        value: lockState?.value
+    }
+
+    const revision = lockState?.revision 
+        ? await this.kv.update(namespacedKey, jsonCodec.encode(newLock), lockState.revision)
+        : await this.kv.create(namespacedKey, jsonCodec.encode(newLock))
+
+    return this.updateLocalState(namespacedKey, newLock, revision)
+  }
+
+  private async resolveOnUnlock(
+    namespacedKey: string, 
+    timeoutMs: number, 
+    resolve: (value: LockState | undefined) => void, 
+    reject: (reason?: unknown) => void
+  ) {
+    const initialState = this.state.get(namespacedKey) 
+    if (!initialState || !this.isLockActive(initialState.state)) {
+      return resolve(initialState?.state)
+    } 
+
+    const watchId = crypto.randomUUID()
+
+    const timeout = setTimeout(() => {
+      const state = this.state.get(namespacedKey)
+      state?.watchers.delete(watchId)
+
+      !state || !this.isLockActive(state.state)
+        ? resolve(state?.state) 
+        : reject(new TimeoutError(namespacedKey))
+    }, timeoutMs)
+
+    const callback = async (entry: LockState) => {
+      if (!this.isLockActive(entry)) {
+        const state = this.state.get(namespacedKey)
+        state?.watchers.delete(watchId)
+
+        clearTimeout(timeout)
+        resolve(entry)
+      } 
+    }
+    initialState.watchers.set(watchId, callback)
+  }
+
+  private isLockActive(lockState: LockState): boolean {
+    return lockState.status === 'locked' && lockState.timestamp + this.config.lockTimeoutMs < Date.now()
+  }
+
+  private updateLocalState(namespacedKey: string, lockMessage: LockMessage, newRevision: number): LockState {
+    const oldValue = this.state.get(namespacedKey)
+    if (oldValue?.state?.revision && oldValue.state.revision >= newRevision) {
+      return oldValue.state
+    }
+
+    const newState = { 
+      state: {
+        ...lockMessage,
+        revision: newRevision,
+        timestamp: Date.now()
+      }, 
+      watchers: oldValue?.watchers ?? new Map<string, MessageHandler>()
+    }
+    this.state.set(namespacedKey, newState)
+
+    newState.watchers.forEach(watcher => watcher(newState.state).catch(console.error))
+
+    return newState.state
+  }
+
+  private checkActive(): void {
+    if (!this.active) {
+      throw new Error('JetstreamDistributedLock closed')
+    }
+  }
+
+  private toNamespacedKey(key: string): string {
+    return `${this.config.namespace}.${key}`
+  }
+} 
+
+export async function connect(natsClient: NatsConnection,config: LockConfiguration): Promise<IDistributedLock> {
+  const kv = await natsClient.jetstream().views.kv(config.namespace, { bindOnly: true })
+  console.log(`JetstreamDistributedLock connected to namespace ${config.namespace}: ${JSON.stringify(await kv.status())}`)
+  
+  const distributor = new JetstreamDistributedLock(kv, config)
+  await new Promise<void>(distributor.initialize.bind(distributor))
+  
+  return distributor
+}

@@ -1,0 +1,68 @@
+export type Readable<T> = {
+    value: Readonly<T> | null
+}
+
+export type Writable<T> = {
+    value: T | null,
+    lockId: string
+}
+
+export interface LockConfiguration {
+    namespace: string
+    lockTimeoutMs: number
+}
+
+export class TimeoutError extends Error {
+    constructor(key: string) {
+        super(`Lock Wait Timeout for key: ${key}`)
+        this.name = 'TimeoutError'
+    }
+}
+
+/**
+ * A distributed locking system that provides atomic operations across multiple processes.
+ * 
+ * This interface defines a distributed lock implementation against a shared memory namespace. 
+ * It provides a set of operations for acquiring, waiting for, and releasing locks, 
+ * as well as for safely executing callbacks within the context of a lock.
+ * 
+ * The lock mechanism ensures that:
+ * - Only one process can hold a lock for a given key at any time
+ * - Locks are automatically timed out if the holding process crashes
+ * - Lock operations are atomic and consistent, without race condition
+ */
+export interface IDistributedLock {
+    /**
+     * Acquires a lock and executes the callback on the locked state.
+     * On success, writes the updated state.
+     * Automatically releases the lock on success or failure.
+     */
+    withLock<T>(
+        key: string, 
+        timeoutMs: number, 
+        callback: (state: T | null) => Promise<T>
+    ): Promise<Readable<T>>
+
+    /** 
+     * Waits for timeoutMs milliseconds to acquire a lock for the given key. 
+     * Returns the current state of the lock.
+     * Throws a TimeoutError if the lock is not acquired by the timeout.
+     * */
+    acquireLock<T>(key: string, timeoutMs: number): Promise<Writable<T>>
+
+    /** 
+     * Releases a previously acquired lock and writes the updated state 
+     * on release, if the lock is still active. 
+     * */
+    releaseLock<T>(key: string, lockObj: Writable<T>): Promise<boolean>
+
+    /**
+     * Waits timeoutMs milliseconds for a lock to become available 
+     * and returns its current state as a Readonly object.
+     * Throws a TimeoutError if the wait times out.
+     */
+    waitFor<T>(key: string, timeoutMs: number): Promise<Readable<T> | null>
+
+    /** Closes the distributor and releases all resources. */
+    close(): void
+}
