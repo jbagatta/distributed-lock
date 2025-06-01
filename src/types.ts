@@ -10,6 +10,7 @@ export type Writable<T> = {
 export interface LockConfiguration {
     namespace: string
     lockTimeoutMs: number
+    objectExpiryMs?: number
 }
 
 export class TimeoutError extends Error {
@@ -18,6 +19,8 @@ export class TimeoutError extends Error {
         this.name = 'TimeoutError'
     }
 }
+
+export type LockStatus = 'locked' | 'unlocked' | 'expired'
 
 /**
  * A distributed locking system that provides atomic operations across multiple processes.
@@ -47,26 +50,21 @@ export interface IDistributedLock {
      * Waits for timeoutMs milliseconds to acquire a lock for the given key. 
      * Returns the current state of the lock.
      * Throws a TimeoutError if the lock is not acquired by the timeout.
-     * */
+     */
     acquireLock<T>(key: string, timeoutMs: number): Promise<Writable<T>>
 
     /** 
      * Releases a previously acquired lock and writes the updated state 
-     * on release, if the lock is still active. 
-     * */
+     * on release, if the lock is still active. Notifies waiting processes.
+     */
     releaseLock<T>(key: string, lockObj: Writable<T>): Promise<boolean>
 
     /**
-     * Extends the lock for the given key, returns true if successful.
-     * */
-    extendLock<T>(key: string, lockObj: Writable<T>): Promise<boolean>
-
-    /**
      * Waits timeoutMs milliseconds for a lock to become available 
-     * and returns its current state as a Readonly object.
+     * and returns its current state as a Readonly object. Does not acquire the lock.
      * Throws a TimeoutError if the wait times out.
      */
-    waitFor<T>(key: string, timeoutMs: number): Promise<Readable<T> | null>
+    wait<T>(key: string, timeoutMs: number): Promise<Readable<T> | null>
 
     /** Closes the distributor and releases all resources. */
     close(): void

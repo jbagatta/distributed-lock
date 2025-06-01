@@ -81,7 +81,7 @@ export class JetstreamDistributedLock implements IDistributedLock {
     this.state.clear()
   }
 
-  public async waitFor<T>(key: string, timeoutMs: number): Promise<Readable<T>> {
+  public async wait<T>(key: string, timeoutMs: number): Promise<Readable<T>> {
     const namespacedKey = this.toNamespacedKey(key)
 
     const lockState = await new Promise<LockState | undefined>((resolve, reject) => 
@@ -119,7 +119,7 @@ export class JetstreamDistributedLock implements IDistributedLock {
     this.checkActive()
 
     // this either returns null immediately, or waits for / retrieves an existing value
-    const value = await this.waitFor<T>(key, timeoutMs)
+    const value = await this.wait<T>(key, timeoutMs)
     if (value) {
         return value
     }
@@ -175,31 +175,6 @@ export class JetstreamDistributedLock implements IDistributedLock {
           return true
         } catch (error) {
           console.error(`Could not release lock ${namespacedKey}, error: ${error}`)
-          return false
-        }
-    }
-
-    return false
-  }
-
-  public async extendLock<T>(key: string, lockObj: Writable<T>): Promise<boolean> {
-    const namespacedKey = this.toNamespacedKey(key)
-    
-    const lockState = this.state.get(namespacedKey)
-    if (lockState && this.isLockActive(lockState.state) && lockState.state.lockId === lockObj.lockId) {
-        const newLock = {
-            status: lockState.state.status,
-            lockId: lockState.state.lockId,
-            value: lockState.state.value
-        } as LockMessage
-    
-        try {
-          const revision = await this.kv.update(namespacedKey, jsonCodec.encode(newLock), lockState.state.revision!)
-
-          this.updateLocalState(namespacedKey, newLock, revision)
-          return true
-        } catch (error) {
-          console.error(`Could not extend lock ${namespacedKey}, error: ${error}`)
           return false
         }
     }
