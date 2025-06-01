@@ -6,7 +6,7 @@ export const lockObjKey =
   (key: string) => `${lockObjKeyPrefix}${key}`
 
 export const redisPubSubChannel = 
-  (namespacedKey: string) => `redis-distributed-lock-notify:${namespacedKey}`
+  (namespace: string) => `redis-distributed-lock-notify:${namespace}`
 
 // KEYS[1] = namespacedKey
 //   objKey = data-store.namespacedKey

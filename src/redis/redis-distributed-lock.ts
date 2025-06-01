@@ -4,7 +4,10 @@ import { LockListener } from './lock-listener'
 import { tryAcquireLockLuaScript, tryWriteLockLuaScript, getLockObjLuaScript, redisPubSubChannel } from './data-model'
 
 export class RedisDistributedLock implements IDistributedLock {
-    constructor(private readonly redis: Redis, private readonly config: LockConfiguration) { }
+    private readonly lockListener: LockListener
+    constructor(private readonly redis: Redis, private readonly config: LockConfiguration) {
+        this.lockListener = new LockListener(redis, config.namespace)
+     }
 
     async withLock<T>(
         key: string,
@@ -34,16 +37,16 @@ export class RedisDistributedLock implements IDistributedLock {
         while (now <= deadline) {
           try {
             // initialize listener before trying to acquire lock to avoid race condition
-            const listener = new LockListener<T>(this.redis, namespacedKey, timeoutMs)
+            const listener = this.lockListener.waitUntilNotified<T>(namespacedKey, timeoutMs)
 
             const lock = await this.tryAcquireLock<T>(namespacedKey, lockId)
             if (lock.lockId === lockId && lock.lockStatus === 'locked') {
-                listener.close()
+                this.lockListener.cancel(listener)
                 return {value: lock.lockObj, lockId}
             }
 
             // wait until notified of lock release to retry
-            await listener.waitUntilNotified()
+            await listener
           } catch { 
             // suppress timeouts and retry 
           }
@@ -83,14 +86,14 @@ export class RedisDistributedLock implements IDistributedLock {
         ) as boolean
 
         if (result) {
-            await this.redis.publish(redisPubSubChannel(namespacedKey), obj)
+            await this.lockListener.notify(namespacedKey, lockObj.value)
         }
         return result
     }
 
     async wait<T>(key: string, timeoutMs: number): Promise<Readable<T> | null> {
         const namespacedKey = this.toNamespacedKey(key)
-        const listener = new LockListener<T>(this.redis, namespacedKey, timeoutMs)
+        const listener = this.lockListener.waitUntilNotified<T>(namespacedKey, timeoutMs)
 
         const result = await this.redis.eval(
             getLockObjLuaScript, 
@@ -99,11 +102,11 @@ export class RedisDistributedLock implements IDistributedLock {
         ) as (string | null)[]
 
         if (result[0] === 'locked') {
-            const value = await listener.waitUntilNotified()
+            const value = await listener
             return {value}
         }
 
-        listener.close()
+        this.lockListener.cancel(listener)
         return {value: result[1] ? JSON.parse(result[1]) as T : null}
     }
 
