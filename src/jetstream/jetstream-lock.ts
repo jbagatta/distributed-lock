@@ -1,7 +1,7 @@
 import { KV, QueuedIterator, KvEntry, NatsConnection, JSONCodec } from 'nats'
-import { LockConfiguration, TimeoutError, Writable } from './types'
-import { Readable } from './types'
-import { IDistributedLock } from './types'
+import { LockConfiguration, TimeoutError, Writable } from '../types'
+import { Readable } from '../types'
+import { IDistributedLock } from '../types'
 
 const jsonCodec = JSONCodec()
 
