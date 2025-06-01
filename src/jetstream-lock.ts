@@ -182,6 +182,31 @@ export class JetstreamDistributedLock implements IDistributedLock {
     return false
   }
 
+  public async extendLock<T>(key: string, lockObj: Writable<T>): Promise<boolean> {
+    const namespacedKey = this.toNamespacedKey(key)
+    
+    const lockState = this.state.get(namespacedKey)
+    if (lockState && this.isLockActive(lockState.state) && lockState.state.lockId === lockObj.lockId) {
+        const newLock = {
+            status: lockState.state.status,
+            lockId: lockState.state.lockId,
+            value: lockState.state.value
+        } as LockMessage
+    
+        try {
+          const revision = await this.kv.update(namespacedKey, jsonCodec.encode(newLock), lockState.state.revision!)
+
+          this.updateLocalState(namespacedKey, newLock, revision)
+          return true
+        } catch (error) {
+          console.error(`Could not extend lock ${namespacedKey}, error: ${error}`)
+          return false
+        }
+    }
+
+    return false
+  }
+
   private async createOrUpdateLock(namespacedKey: string, lockState: LockState | undefined): Promise<LockState> {
     const newLock = {
         status: 'locked' as LockStatus,

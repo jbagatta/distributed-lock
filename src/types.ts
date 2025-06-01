@@ -29,7 +29,7 @@ export class TimeoutError extends Error {
  * The lock mechanism ensures that:
  * - Only one process can hold a lock for a given key at any time
  * - Locks are automatically timed out if the holding process crashes
- * - Lock operations are atomic and consistent, without race condition
+ * - Data operations on the locked object are atomic and consistent
  */
 export interface IDistributedLock {
     /**
@@ -55,6 +55,11 @@ export interface IDistributedLock {
      * on release, if the lock is still active. 
      * */
     releaseLock<T>(key: string, lockObj: Writable<T>): Promise<boolean>
+
+    /**
+     * Extends the lock for the given key, returns true if successful.
+     * */
+    extendLock<T>(key: string, lockObj: Writable<T>): Promise<boolean>
 
     /**
      * Waits timeoutMs milliseconds for a lock to become available 
