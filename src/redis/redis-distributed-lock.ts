@@ -7,7 +7,7 @@ export class RedisDistributedLock implements IDistributedLock {
     private readonly lockListener: LockListener
     constructor(private readonly redis: Redis, private readonly config: LockConfiguration) {
         this.lockListener = new LockListener(redis, config.namespace)
-     }
+    }
 
     async withLock<T>(
         key: string,
@@ -111,7 +111,7 @@ export class RedisDistributedLock implements IDistributedLock {
     }
 
     close(): void {
-        // no-op
+        this.lockListener.close()
     }
 
     private toNamespacedKey(key: string): string {
