@@ -1,16 +1,17 @@
-
-// REDIS DATA MODEL
-
 const lockIdField = 'lockId'
 const lockStatusField = 'lockStatus'
 const lockObjKeyPrefix = 'data-store.'
 
-export const lockObjKey = (key: string) => `${lockObjKeyPrefix}${key}`
+export const lockObjKey = 
+  (key: string) => `${lockObjKeyPrefix}${key}`
 
-export function redisPubSubChannel(namespacedKey: string) {
-    return `redis-distributed-lock-notify:${namespacedKey}`;
-}
+export const redisPubSubChannel = 
+  (namespacedKey: string) => `redis-distributed-lock-notify:${namespacedKey}`
 
+// KEYS[1] = namespacedKey
+//   objKey = data-store.namespacedKey
+// ARGV[1] = lockId
+// ARGV[2] = lockTimeoutMs
 export const tryAcquireLockLuaScript = ` \
   local exists = redis.call('EXISTS', KEYS[1]) \
   local objKey = ${lockObjKeyPrefix} .. KEYS[1] \
@@ -27,6 +28,11 @@ export const tryAcquireLockLuaScript = ` \
   end \
 `
 
+// KEYS[1] = namespacedKey
+//   objKey = data-store.namespacedKey
+// ARGV[1] = lockId
+// ARGV[2] = lockObj
+// ARGV[3] = objectExpiryMs
 export const tryWriteLockLuaScript = ` \
   local exists = redis.call('EXISTS', KEYS[1]) \
   if (exists == 1 and redis.call('HGET', KEYS[1], '${lockIdField}') == ARGV[1]) then \
@@ -44,8 +50,11 @@ export const tryWriteLockLuaScript = ` \
   end \
 `
 
+// KEYS[1] = namespacedKey
+//   objKey = data-store.namespacedKey
 export const getLockObjLuaScript = ` \
   local objKey = ${lockObjKeyPrefix} .. KEYS[1] \
+  local lockObj = redis.call('GET', objKey) \
   local lockStatus = redis.call('HGET', KEYS[1], '${lockStatusField}') \
   return {lockStatus, lockObj} \
 `

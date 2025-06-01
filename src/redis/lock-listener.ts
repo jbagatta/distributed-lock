@@ -1,33 +1,42 @@
-import { Redis } from "ioredis";
-import { TimeoutError } from "../types";
-import { redisPubSubChannel } from "./data-model";
+import { Redis } from "ioredis"
+import { TimeoutError } from "../types"
+import { redisPubSubChannel } from "./data-model"
 
 export class LockListener<T> {
-    private readonly notification: Promise<T | null>;
+    private readonly subscriber: Redis
+    private readonly notification: Promise<T | null>
+
     constructor(private readonly redis: Redis, private readonly namespacedKey: string, timeoutMs: number) { 
-        this.notification = this.initialize(timeoutMs);
+        this.subscriber = redis.duplicate()
+        this.notification = this.initialize(timeoutMs)
     }
 
     async waitUntilNotified(): Promise<T | null> {
         try {
-            return await this.notification;
+            return await this.notification
         } finally {
-            this.close();
+            this.close()
         }
     }
 
     close(): void {
-        this.redis.unsubscribe(redisPubSubChannel(this.namespacedKey));
+        this.subscriber.unsubscribe(redisPubSubChannel(this.namespacedKey))
+        this.subscriber.quit().catch(console.error)
     }
     
     private initialize(timeoutMs: number): Promise<T | null> {
         return new Promise<T | null>((resolve, reject) => {
-            const timeout = setTimeout(() => reject(new TimeoutError(this.namespacedKey)), timeoutMs);
+            const timeout = setTimeout(() => reject(new TimeoutError(this.namespacedKey)), timeoutMs)
 
-            this.redis.subscribe(redisPubSubChannel(this.namespacedKey), (err, message) => {
-                clearTimeout(timeout);
-                return err ? reject(err) : resolve(JSON.parse(message as string));
-            });
-        });
+            this.subscriber.subscribe(redisPubSubChannel(this.namespacedKey), (err, message) => {
+                clearTimeout(timeout)
+
+                if (err) return reject(err) 
+                const payload = message as string | undefined
+                if (!payload) return reject(new Error('Invalid message'))
+
+                return resolve(JSON.parse(payload) as T)
+            })
+        })
     }
 }
