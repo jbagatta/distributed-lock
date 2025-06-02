@@ -56,6 +56,11 @@ export class RedisDistributedLock implements IDistributedLock {
           }
           now = Date.now()
         }
+
+        const lastTry = await this.tryAcquireLock<T>(key)
+        if (lastTry[0]) {
+            return lastTry[1]!
+        }
     
         throw new TimeoutError(namespacedKey)
     }
@@ -100,7 +105,7 @@ export class RedisDistributedLock implements IDistributedLock {
             obj,
             this.config.objectExpiryMs ?? -1
         ) 
-        
+
         const success = result === 1
         if (success) {
             await this.lockListener.notify(namespacedKey, lockObj.value)

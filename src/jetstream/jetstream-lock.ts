@@ -95,7 +95,7 @@ export class JetstreamDistributedLock implements IDistributedLock {
         if (!updated) {
           throw new TimeoutError(key)
         }
-        
+
         return {value: updatedState} 
     } catch(error) {
         await this.releaseLock(key, lock)
@@ -124,6 +124,11 @@ export class JetstreamDistributedLock implements IDistributedLock {
         // suppress timeouts and lock acquire failures, retry 
         now = Date.now()
       }
+    }
+
+    const lastTry = await this.tryAcquireLock<T>(key)
+    if (lastTry[0]) {
+        return lastTry[1]!
     }
 
     throw new TimeoutError(namespacedKey)

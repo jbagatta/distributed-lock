@@ -35,7 +35,7 @@ export class LockListener {
     }
 
     cancel<T>(wait: Promise<T>): void {
-        wait.then().catch()
+        wait.then().catch(() => {})
     }
 
     private async resolveOnNotification<T>(
@@ -60,7 +60,7 @@ export class LockListener {
         if (!this.listeners.has(namespacedKey)) {
             this.listeners.set(namespacedKey, new Map())
         }
-        this.listeners.get(namespacedKey)!.set(watchId, callback)
+        this.listeners.get(namespacedKey)!.set(watchId, callback.bind(this))
     }
 
     close(): void {
