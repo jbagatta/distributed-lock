@@ -10,15 +10,14 @@ describe('RedisDistributedLock', () => {
     
     const config: LockConfiguration = {
         namespace: 'test-locks',
-        lockTimeoutMs: 1000,
+        lockTimeoutMs: 2000,
         objectExpiryMs: 5000
     };
 
     beforeEach(async () => {
-        redis1 = new Redis('redis://localhost:6379', {lazyConnect: true});
-        redis2 = new Redis('redis://localhost:6379', {lazyConnect: true});
-        await redis1.connect();
-        await redis2.connect();
+        redis1 = new Redis('redis://localhost:6379');
+        redis2 = new Redis('redis://localhost:6379');
+        
         lock1 = new RedisDistributedLock(redis1, config);
         lock2 = new RedisDistributedLock(redis2, config);
     });
@@ -72,6 +71,8 @@ describe('RedisDistributedLock', () => {
 
             const lock1Result = await lock1.acquireLock<string>(key, 100);
             const lock2Promise = lock2.acquireLock<string>(key, 1000);
+
+            await sleep(500)
             await lock1.releaseLock(key, {value: 'newval', lockId: lock1Result.lockId});
             
             const lock2Result = await lock2Promise;
@@ -85,7 +86,7 @@ describe('RedisDistributedLock', () => {
             const key = crypto.randomUUID();
 
             const lock1Result = await lock1.acquireLock<string>(key, 100);
-            await sleep(800)
+            await sleep(config.lockTimeoutMs - 200)
 
             const lock2Promise = lock2.acquireLock<string>(key, 1000);
             await sleep(500);
@@ -108,17 +109,48 @@ describe('RedisDistributedLock', () => {
             await lock1.releaseLock(key, {value: value1, lockId: lockResult1.lockId});
 
             const value2 = crypto.randomUUID()
-            const lockResult2 = await lock1.acquireLock<string>(key, 100);
+            const lockResult2 = await lock2.acquireLock<string>(key, 100);
             expect(lockResult2.value).toBe(value1);
-            await lock1.releaseLock(key, {value: value2, lockId: lockResult2.lockId});
+            await lock2.releaseLock(key, {value: value2, lockId: lockResult2.lockId});
 
-            const value3 = crypto.randomUUID()
-            const lockResult3 = await lock1.acquireLock<string>(key, 100);
-            expect(lockResult3.value).toBe(value2);
-            await lock1.releaseLock(key, {value: value3, lockId: lockResult3.lockId});
+            const result = await lock1.wait<string>(key, 100);
+            expect(result?.value).toBe(value2);
+        });
+    });
 
-            const lock2Result = await lock2.wait<string>(key, 100);
-            expect(lock2Result?.value).toBe(value3);
+    describe('tryAcquireLock', () => {
+        it('should return true immediately after acquiring lock', async () => {
+            const key = crypto.randomUUID();
+            const value = crypto.randomUUID()
+
+            await lock1.withLock<string>(key, 100, async (state) => {
+                expect(state).toBeNull();
+                return value;
+            });
+            
+            const lock1Result = await lock1.tryAcquireLock<string>(key);
+
+            expect(lock1Result[0]).toBe(true);
+            expect(lock1Result[1]!.value).toBe(value);
+        });
+
+        it('should return false immediately if lock is not acquired', async () => {
+            const key = crypto.randomUUID();
+            const value = crypto.randomUUID()
+
+            await lock1.withLock<string>(key, 100, async (state) => {
+                expect(state).toBeNull();
+                return value;
+            });
+
+            const lockResult2 = await lock2.acquireLock<string>(key, 100);
+
+            const lock1Result = await lock1.tryAcquireLock<string>(key);
+
+            expect(lock1Result[0]).toBe(false);
+            expect(lock1Result[1]).toBeUndefined();
+
+            await lock2.releaseLock(key, lockResult2);
         });
     });
 
@@ -153,17 +185,18 @@ describe('RedisDistributedLock', () => {
             
             const result = await lock2.acquireLock(key, 100);
             expect(result.value).toBeNull();
+            await lock2.releaseLock(key, result);
         });
 
         it('should timeout if callback takes too long', async () => {
             const key = crypto.randomUUID();
             
-            await expect(lock1.withLock(key, 500, async () => {
-                await sleep(1000);
+            await expect(lock1.withLock(key, 100, async () => {
+                await sleep(config.lockTimeoutMs + 100);
                 return 'NOPE';
             })).rejects.toThrow(TimeoutError);
             
-            const result = await lock2.acquireLock(key, 500);
+            const result = await lock2.acquireLock(key, 100);
             expect(result.value).toBeNull();
         });
 
@@ -171,10 +204,16 @@ describe('RedisDistributedLock', () => {
             const key = crypto.randomUUID();
             const operations: Promise<Readable<{ count: number }>>[] = [];
             
-            const count = 20
+            const count = 5
             for (let i = 0; i < count; i++) {
                 operations.push(
-                    lock1.withLock<{count: number}>(key, 1000, async (state) => {
+                    lock1.withLock<{count: number}>(key, 1500, async (state) => {
+                        const currentCount = state?.count ?? 0;
+                        return { count: currentCount + 1 };
+                    })
+                );
+                operations.push(
+                    lock2.withLock<{count: number}>(key, 1500, async (state) => {
                         const currentCount = state?.count ?? 0;
                         return { count: currentCount + 1 };
                     })
@@ -183,8 +222,8 @@ describe('RedisDistributedLock', () => {
             
             await Promise.all(operations);
             
-            const finalResult = await lock1.wait<{count: number}>(key, 1000);
-            expect(finalResult.value?.count).toEqual(count);
+            const finalResult = await lock1.wait<{count: number}>(key, 100);
+            expect(finalResult.value?.count).toEqual(2*count);
         });
     });
 
@@ -193,24 +232,27 @@ describe('RedisDistributedLock', () => {
             const key = crypto.randomUUID();
             const value = {count: 123};
             
-            const lock1Result = await lock1.acquireLock<{count: number}>(key, 1000);
-            await lock1.releaseLock<{count: number}>(key, { ...lock1Result, value });
+            const lock1Result = await lock1.acquireLock<{count: number}>(key, 100);
             
-            const result = await lock2.wait<{count: number}>(key, 1000);
-            expect(result?.value).toEqual(value);
+            const result = lock2.wait<{count: number}>(key, 1000);
+
+            await sleep(500)
+            await lock1.releaseLock(key, { lockId: lock1Result.lockId!, value });
+
+            expect((await result)?.value).toEqual(value);
             
-            const finalResult = await lock1.acquireLock<{count: number}>(key, 1000);
+            const finalResult = await lock1.acquireLock<{count: number}>(key, 100);
             expect(finalResult.value).toEqual(value);
-            await lock1.releaseLock<{count: number}>(key, finalResult);
+            await lock1.releaseLock(key, finalResult);
         });
 
         it('should throw TimeoutError if wait times out', async () => {
             const key = crypto.randomUUID();
             
-            const lockResult = await lock1.acquireLock<number>(key, 1000);
+            const lockResult = await lock1.acquireLock<number>(key, 100);
             
             await expect(lock2.wait<number>(key, 100)).rejects.toThrow(TimeoutError);
-            await lock1.releaseLock<number>(key, lockResult);
+            await lock1.releaseLock(key, lockResult);
         });
     });
 
@@ -219,11 +261,11 @@ describe('RedisDistributedLock', () => {
             const key = crypto.randomUUID();
             const value = 123;
             
-            const lock1Result = await lock1.acquireLock<number>(key, 1000);
-            const updated = await lock1.releaseLock<number>(key, { lockId: lock1Result.lockId!, value });
+            const lock1Result = await lock1.acquireLock<number>(key, 100);
+            const updated = await lock1.releaseLock(key, { lockId: lock1Result.lockId!, value });
             expect(updated).toBe(true);
             
-            const finalResult = await lock2.wait<number>(key, 1000);
+            const finalResult = await lock2.wait<number>(key, 100);
             expect(finalResult.value).toEqual(value);
         });
 
@@ -231,13 +273,13 @@ describe('RedisDistributedLock', () => {
             const key = crypto.randomUUID();
             const value = 123;
             
-            const lock1Result = await lock1.acquireLock<number>(key, 500);
-            await sleep(1000);
+            const lock1Result = await lock1.acquireLock<number>(key, 100);
+            await sleep(config.lockTimeoutMs + 100);
 
-            const updated = await lock1.releaseLock<number>(key, { lockId: lock1Result.lockId!, value });
+            const updated = await lock1.releaseLock(key, { lockId: lock1Result.lockId!, value });
             expect(updated).toBe(false);
             
-            const finalResult = await lock2.wait<number>(key, 1000);
+            const finalResult = await lock2.wait<number>(key, 100);
             expect(finalResult.value).toBeNull();
         });
     });
