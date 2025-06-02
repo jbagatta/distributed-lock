@@ -137,8 +137,9 @@ export class JetstreamDistributedLock implements IDistributedLock {
 
     while (now <= deadline) {
       try {
+        const unlockTimeout = deadline - now
         const lockState = await new Promise<LockState | undefined>((resolve, reject) => 
-            this.resolveOnUnlock.bind(this)(namespacedKey, timeoutMs, resolve, reject))
+            this.resolveOnUnlock.bind(this)(namespacedKey, unlockTimeout, resolve, reject))
 
         const lock = await this.createOrUpdateLock(namespacedKey, lockState)
         const lockObj = lock.value ? JSON.parse(lock.value) as T : null
@@ -150,11 +151,6 @@ export class JetstreamDistributedLock implements IDistributedLock {
       }
     }
 
-    const lastTry = await this.tryAcquireLock<T>(key)
-    if (lastTry[0]) {
-        return lastTry[1]!
-    }
-
     throw new TimeoutError(namespacedKey)
   }
 
@@ -164,6 +160,10 @@ export class JetstreamDistributedLock implements IDistributedLock {
 
     try {
       const lockState = this.state.get(namespacedKey)
+      if (lockState && this.isLockActive(lockState.state)) {
+        return [false, undefined]
+      }
+      
       const lock = await this.createOrUpdateLock(namespacedKey, lockState?.state)
       const lockObj = lock.value ? JSON.parse(lock.value) as T : null
 
@@ -200,6 +200,11 @@ export class JetstreamDistributedLock implements IDistributedLock {
 
   public async wait<T>(key: string, timeoutMs: number): Promise<Readable<T>> {
     const namespacedKey = this.toNamespacedKey(key)
+
+    const latest = await this.kv.get(namespacedKey)
+    if (latest) {
+      this.processEntry(latest)
+    }
 
     const lockState = await new Promise<LockState | undefined>((resolve, reject) => 
         this.resolveOnUnlock.bind(this)(namespacedKey, timeoutMs, resolve, reject))

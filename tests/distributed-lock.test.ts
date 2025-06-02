@@ -1,12 +1,37 @@
 import Redis from 'ioredis'
 import { RedisDistributedLock } from '../src/redis/redis-distributed-lock'
 import { IDistributedLock, TimeoutError, LockConfiguration, Readable } from '../src/types'
+import { connect } from 'nats'
+import { JetstreamDistributedLock } from '../src/jetstream/jetstream-distributed-lock'
 
-describe('RedisDistributedLock', () => {
-    let redis1: Redis
-    let redis2: Redis
+const redisInit = async (config: LockConfiguration) => {
+    const redis = new Redis('redis://localhost:6379')
+    const lock = await RedisDistributedLock.create(redis, config)
+
+    return {lock, close: async () => {
+        lock.close()
+        await redis.quit()
+    }}
+}
+
+const natsInit = async (config: LockConfiguration) => {
+    const nats = await connect({
+        servers: ['nats://localhost:4222'],
+        token: 'l0c4lt0k3n'
+    })
+    const lock = await JetstreamDistributedLock.create(nats, config)
+
+    return {lock, close: async () => {
+        lock.close()
+        await nats.close()
+    }}
+}
+
+describe.each([natsInit, redisInit])('DistributedLock', (lockInit) => {
     let lock1: IDistributedLock
     let lock2: IDistributedLock
+    let close1: () => Promise<void>
+    let close2: () => Promise<void>
     
     const config: LockConfiguration = {
         namespace: 'test-locks',
@@ -15,18 +40,18 @@ describe('RedisDistributedLock', () => {
     }
 
     beforeEach(async () => {
-        redis1 = new Redis('redis://localhost:6379')
-        redis2 = new Redis('redis://localhost:6379')
-        
-        lock1 = new RedisDistributedLock(redis1, config)
-        lock2 = new RedisDistributedLock(redis2, config)
+        const {lock: l1, close: c1} = await lockInit(config)
+        const {lock: l2, close: c2} = await lockInit(config)
+
+        lock1 = l1
+        lock2 = l2
+        close1 = c1
+        close2 = c2
     })
 
     afterEach(async () => {
-        lock1.close()
-        lock2.close()
-        await redis1.quit()
-        await redis2.quit()
+        await close1()
+        await close2()
     })
 
     describe('acquireLock', () => {
