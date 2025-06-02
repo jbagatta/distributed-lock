@@ -14,7 +14,7 @@ export const redisPubSubChannel =
 // ARGV[2] = lockTimeoutMs
 export const tryAcquireLockLuaScript = ` \
   local exists = redis.call('EXISTS', KEYS[1]) \
-  local objKey = ${lockObjKeyPrefix} .. KEYS[1] \
+  local objKey = '${lockObjKeyPrefix}' .. KEYS[1] \
   local lockObj = redis.call('GET', objKey) \
   if (exists == 0 or redis.call('HGET', KEYS[1], '${lockStatusField}') ~= 'locked') then \
         redis.call('HSET', KEYS[1], '${lockIdField}', ARGV[1]) \
@@ -36,7 +36,7 @@ export const tryAcquireLockLuaScript = ` \
 export const tryWriteLockLuaScript = ` \
   local exists = redis.call('EXISTS', KEYS[1]) \
   if (exists == 1 and redis.call('HGET', KEYS[1], '${lockIdField}') == ARGV[1]) then \
-      local objKey = ${lockObjKeyPrefix} .. KEYS[1] \
+      local objKey = '${lockObjKeyPrefix}' .. KEYS[1] \
       redis.call('SET', objKey, ARGV[2]) \
       if (ARGV[3] == -1) then \
           redis.call('PERSIST', objKey) \
@@ -53,7 +53,7 @@ export const tryWriteLockLuaScript = ` \
 // KEYS[1] = namespacedKey
 //   objKey = data-store.namespacedKey
 export const getLockObjLuaScript = ` \
-  local objKey = ${lockObjKeyPrefix} .. KEYS[1] \
+  local objKey = '${lockObjKeyPrefix}' .. KEYS[1] \
   local lockObj = redis.call('GET', objKey) \
   local lockStatus = redis.call('HGET', KEYS[1], '${lockStatusField}') \
   return {lockStatus, lockObj} \

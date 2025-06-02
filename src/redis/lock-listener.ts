@@ -6,8 +6,8 @@ export class LockListener {
     private readonly subscriber: Redis
     private readonly listeners = new Map<string, Map<string, (payload: any) => void>>()
 
-    constructor(redis: Redis, private readonly namespace: string) { 
-        this.subscriber = redis.duplicate()        
+    constructor(private readonly redis: Redis, private readonly namespace: string) { 
+        this.subscriber = this.redis.duplicate()        
         
         this.subscriber.subscribe(redisPubSubChannel(this.namespace))
         this.subscriber.on('message', (channel, message) => {
@@ -25,7 +25,7 @@ export class LockListener {
     }
 
     async notify<T>(namespacedKey: string, payload: T): Promise<void> {
-        await this.subscriber.publish(redisPubSubChannel(this.namespace), JSON.stringify({ key: namespacedKey, payload }))
+        await this.redis.publish(redisPubSubChannel(this.namespace), JSON.stringify({ key: namespacedKey, payload }))
     }
 
     async waitUntilNotified<T>(namespacedKey: string, timeoutMs: number): Promise<T> {
