@@ -5,8 +5,11 @@ import { tryAcquireLockLuaScript, tryWriteLockLuaScript, getLockObjLuaScript, re
 
 export class RedisDistributedLock implements IDistributedLock {
     private readonly lockListener: LockListener
+    private active = false
+
     private constructor(private readonly redis: Redis, private readonly config: LockConfiguration) {
         this.lockListener = new LockListener(redis, config.namespace)
+        this.active = true
     }
 
     static async create(redis: Redis, config: LockConfiguration): Promise<IDistributedLock> {
@@ -37,6 +40,7 @@ export class RedisDistributedLock implements IDistributedLock {
     }
 
     async acquireLock<T>(key: string, timeoutMs: number): Promise<Writable<T>> {
+        this.checkActive()
         const namespacedKey = this.toNamespacedKey(key)
         const lockId = crypto.randomUUID()
 
@@ -70,6 +74,7 @@ export class RedisDistributedLock implements IDistributedLock {
     }
 
     public async tryAcquireLock<T>(key: string): Promise<[boolean, Writable<T> | undefined]> {
+        this.checkActive()
         const namespacedKey = this.toNamespacedKey(key)
         const lockId = crypto.randomUUID()
 
@@ -98,6 +103,7 @@ export class RedisDistributedLock implements IDistributedLock {
     }
 
     async releaseLock<T>(key: string, lockObj: Writable<T>): Promise<boolean> {
+        this.checkActive()
         const namespacedKey = this.toNamespacedKey(key)
         
         const obj = JSON.stringify(lockObj.value)
@@ -118,6 +124,7 @@ export class RedisDistributedLock implements IDistributedLock {
     }
 
     async wait<T>(key: string, timeoutMs: number): Promise<Readable<T>> {
+        this.checkActive()
         const namespacedKey = this.toNamespacedKey(key)
         const listener = this.lockListener.waitUntilNotified<T>(namespacedKey, timeoutMs)
 
@@ -138,9 +145,16 @@ export class RedisDistributedLock implements IDistributedLock {
 
     close(): void {
         this.lockListener.close()
+        this.active = false
     }
 
     private toNamespacedKey(key: string): string {
       return `${this.config.namespace}.${key}`
+    }
+
+    private checkActive(): void {
+      if (!this.active) {
+        throw new Error('RedisDistributedLock closed')
+      }
     }
 }

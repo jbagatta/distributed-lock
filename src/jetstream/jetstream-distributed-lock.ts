@@ -175,6 +175,7 @@ export class JetstreamDistributedLock implements IDistributedLock {
   }
 
   public async releaseLock<T>(key: string, lockObj: Writable<T>): Promise<boolean> {
+    this.checkActive()
     const namespacedKey = this.toNamespacedKey(key)
     
     const lockState = this.state.get(namespacedKey)
@@ -200,6 +201,7 @@ export class JetstreamDistributedLock implements IDistributedLock {
   }
 
   public async wait<T>(key: string, timeoutMs: number): Promise<Readable<T>> {
+    this.checkActive()
     const namespacedKey = this.toNamespacedKey(key)
 
     const lockState = await new Promise<LockState | undefined>((resolve, reject) => 
