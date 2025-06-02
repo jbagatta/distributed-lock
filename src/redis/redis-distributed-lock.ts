@@ -99,12 +99,13 @@ export class RedisDistributedLock implements IDistributedLock {
             lockObj.lockId, 
             obj,
             this.config.objectExpiryMs ?? -1
-        ) as boolean
-
-        if (result) {
+        ) 
+        
+        const success = result === 1
+        if (success) {
             await this.lockListener.notify(namespacedKey, lockObj.value)
         }
-        return result
+        return success
     }
 
     async wait<T>(key: string, timeoutMs: number): Promise<Readable<T>> {

@@ -30,7 +30,7 @@ export class LockListener {
 
     async waitUntilNotified<T>(namespacedKey: string, timeoutMs: number): Promise<T> {
         return new Promise<T>((resolve, reject) => {
-            this.resolveOnNotification(namespacedKey, timeoutMs, resolve, reject)
+            this.resolveOnNotification.bind(this)(namespacedKey, timeoutMs, resolve, reject)
         })
     }
 
