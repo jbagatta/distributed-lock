@@ -90,7 +90,11 @@ export class JetstreamDistributedLock implements IDistributedLock {
 
     try {
         const updatedState = await callback(lock.value) 
-        await this.releaseLock(key, {value: updatedState, lockId: lock.lockId!})
+        
+        const updated = await this.releaseLock(key, {value: updatedState, lockId: lock.lockId!})
+        if (!updated) {
+          throw new TimeoutError(key)
+        }
         
         return {value: updatedState} 
     } catch(error) {

@@ -18,8 +18,12 @@ export class RedisDistributedLock implements IDistributedLock {
 
         try {
             const updatedState = await callback(lock.value) 
-            await this.releaseLock(key, {value: updatedState, lockId: lock.lockId!})
-            
+         
+            const updated = await this.releaseLock(key, {value: updatedState, lockId: lock.lockId!})
+            if (!updated) {
+                throw new TimeoutError(key)
+            }
+
             return {value: updatedState} 
         } catch(error) {
             await this.releaseLock(key, lock)
@@ -64,7 +68,7 @@ export class RedisDistributedLock implements IDistributedLock {
         if (lock.lockId === lockId && lock.lockStatus === 'locked') {
             return [true, {value: lock.lockObj, lockId}]
         }
-        
+
         return [false, undefined]
     }
 
@@ -103,7 +107,7 @@ export class RedisDistributedLock implements IDistributedLock {
         return result
     }
 
-    async wait<T>(key: string, timeoutMs: number): Promise<Readable<T> | null> {
+    async wait<T>(key: string, timeoutMs: number): Promise<Readable<T>> {
         const namespacedKey = this.toNamespacedKey(key)
         const listener = this.lockListener.waitUntilNotified<T>(namespacedKey, timeoutMs)
 

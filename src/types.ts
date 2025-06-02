@@ -71,7 +71,7 @@ export interface IDistributedLock {
      * and returns its current state as a Readonly object. Does not acquire the lock.
      * Throws a TimeoutError if the wait times out.
      */
-    wait<T>(key: string, timeoutMs: number): Promise<Readable<T> | null>
+    wait<T>(key: string, timeoutMs: number): Promise<Readable<T>>
 
     /** Closes the distributor and releases all resources. */
     close(): void
