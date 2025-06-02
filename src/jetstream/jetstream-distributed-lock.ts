@@ -159,11 +159,12 @@ export class JetstreamDistributedLock implements IDistributedLock {
     const namespacedKey = this.toNamespacedKey(key)
 
     try {
+      await this.updateKey(namespacedKey)
       const lockState = this.state.get(namespacedKey)
       if (lockState && this.isLockActive(lockState.state)) {
         return [false, undefined]
       }
-      
+
       const lock = await this.createOrUpdateLock(namespacedKey, lockState?.state)
       const lockObj = lock.value ? JSON.parse(lock.value) as T : null
 
@@ -201,11 +202,7 @@ export class JetstreamDistributedLock implements IDistributedLock {
   public async wait<T>(key: string, timeoutMs: number): Promise<Readable<T>> {
     const namespacedKey = this.toNamespacedKey(key)
 
-    const latest = await this.kv.get(namespacedKey)
-    if (latest) {
-      this.processEntry(latest)
-    }
-
+    await this.updateKey(namespacedKey)
     const lockState = await new Promise<LockState | undefined>((resolve, reject) => 
         this.resolveOnUnlock.bind(this)(namespacedKey, timeoutMs, resolve, reject))
 
@@ -284,6 +281,13 @@ export class JetstreamDistributedLock implements IDistributedLock {
     newState.watchers.forEach(watcher => watcher(newState.state).catch(console.error))
 
     return newState.state
+  }
+
+  private async updateKey(namespacedKey: string) {
+    const latest = await this.kv.get(namespacedKey)
+    if (latest) {
+      this.processEntry(latest)
+    }
   }
 
   private checkActive(): void {

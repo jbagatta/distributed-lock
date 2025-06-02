@@ -1,9 +1,10 @@
 version: "3.9"
 services:
   nats-server:
-    image: "nats:latest"
+    image: "nats:2.10"
     ports:
       - "4222:4222"
+    command: --js --auth l0c4lt0k3n
   redis:
     image: "bitnami/redis:latest"
     ports:
