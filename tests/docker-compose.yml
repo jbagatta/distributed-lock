@@ -1,0 +1,10 @@
+version: "3.9"
+services:
+  nats-server:
+    image: "nats:latest"
+    ports:
+      - "4222:4222"
+  redis:
+    image: "bitnami/redis:latest"
+    ports:
+      - "6379:6379"
