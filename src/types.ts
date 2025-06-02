@@ -54,6 +54,13 @@ export interface IDistributedLock {
     acquireLock<T>(key: string, timeoutMs: number): Promise<Writable<T>>
 
     /** 
+     * Waits for timeoutMs milliseconds to acquire a lock for the given key. 
+     * Returns the current state of the lock.
+     * Throws a TimeoutError if the lock is not acquired by the timeout.
+     */
+    tryAcquireLock<T>(key: string): Promise<[boolean, Writable<T> | undefined]>
+
+    /** 
      * Releases a previously acquired lock and writes the updated state 
      * on release, if the lock is still active. Notifies waiting processes.
      */

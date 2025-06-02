@@ -39,7 +39,7 @@ export class RedisDistributedLock implements IDistributedLock {
             // initialize listener before trying to acquire lock to avoid race condition
             const listener = this.lockListener.waitUntilNotified<T>(namespacedKey, timeoutMs)
 
-            const lock = await this.tryAcquireLock<T>(namespacedKey, lockId)
+            const lock = await this.getOrCreateLock<T>(namespacedKey, lockId)
             if (lock.lockId === lockId && lock.lockStatus === 'locked') {
                 this.lockListener.cancel(listener)
                 return {value: lock.lockObj, lockId}
@@ -56,7 +56,19 @@ export class RedisDistributedLock implements IDistributedLock {
         throw new TimeoutError(namespacedKey)
     }
 
-    private async tryAcquireLock<T>(namespacedKey: string, lockId: string) {
+    public async tryAcquireLock<T>(key: string): Promise<[boolean, Writable<T> | undefined]> {
+        const namespacedKey = this.toNamespacedKey(key)
+        const lockId = crypto.randomUUID()
+
+        const lock = await this.getOrCreateLock<T>(namespacedKey, lockId)
+        if (lock.lockId === lockId && lock.lockStatus === 'locked') {
+            return [true, {value: lock.lockObj, lockId}]
+        }
+        
+        return [false, undefined]
+    }
+
+    private async getOrCreateLock<T>(namespacedKey: string, lockId: string) {
         const result = await this.redis.eval(
             tryAcquireLockLuaScript,
             1,
