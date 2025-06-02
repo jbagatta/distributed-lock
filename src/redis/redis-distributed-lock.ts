@@ -5,8 +5,12 @@ import { tryAcquireLockLuaScript, tryWriteLockLuaScript, getLockObjLuaScript, re
 
 export class RedisDistributedLock implements IDistributedLock {
     private readonly lockListener: LockListener
-    constructor(private readonly redis: Redis, private readonly config: LockConfiguration) {
+    private constructor(private readonly redis: Redis, private readonly config: LockConfiguration) {
         this.lockListener = new LockListener(redis, config.namespace)
+    }
+
+    static async create(redis: Redis, config: LockConfiguration): Promise<IDistributedLock> {
+        return new RedisDistributedLock(redis, config)
     }
 
     async withLock<T>(

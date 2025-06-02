@@ -1,4 +1,4 @@
-import { KV, QueuedIterator, KvEntry, NatsConnection, JSONCodec } from 'nats'
+import { KV, QueuedIterator, KvEntry, NatsConnection, JSONCodec, StorageType } from 'nats'
 import { LockConfiguration, TimeoutError, Writable } from '../types'
 import { Readable } from '../types'
 import { IDistributedLock } from '../types'
@@ -28,7 +28,34 @@ export class JetstreamDistributedLock implements IDistributedLock {
   private active = false
   private initialized = false
 
-  constructor(private readonly kv: KV, private readonly config: LockConfiguration) { }
+  private constructor(private readonly kv: KV, private readonly config: LockConfiguration) { }
+
+  static async connect(natsClient: NatsConnection, config: LockConfiguration): Promise<IDistributedLock> {
+    const kv = await natsClient.jetstream().views.kv(config.namespace, { bindOnly: true })
+    console.log(`JetstreamDistributedLock connected to namespace ${config.namespace}: ${JSON.stringify(await kv.status())}`)
+    
+    const distributor = new JetstreamDistributedLock(kv, config)
+    await new Promise<void>(distributor.initialize.bind(distributor))
+    
+    return distributor
+  }
+  
+  static async create(natsClient: NatsConnection, config: LockConfiguration): Promise<IDistributedLock> {
+    const kv = await natsClient.jetstream().views.kv(config.namespace, { 
+      streamName: config.namespace,
+      history: 1,
+      ttl: config.objectExpiryMs,
+      storage: StorageType.Memory,
+      replicas: 1
+    })
+  
+    console.log(`JetstreamDistributedLock created namespace ${config.namespace}: ${JSON.stringify(await kv.status())}`)
+    
+    const distributor = new JetstreamDistributedLock(kv, config)
+    await new Promise<void>(distributor.initialize.bind(distributor))
+    
+    return distributor
+  }
   
   async initialize(
     resolve: () => void,
@@ -267,13 +294,3 @@ export class JetstreamDistributedLock implements IDistributedLock {
     return `${this.config.namespace}.${key}`
   }
 } 
-
-export async function connect(natsClient: NatsConnection,config: LockConfiguration): Promise<IDistributedLock> {
-  const kv = await natsClient.jetstream().views.kv(config.namespace, { bindOnly: true })
-  console.log(`JetstreamDistributedLock connected to namespace ${config.namespace}: ${JSON.stringify(await kv.status())}`)
-  
-  const distributor = new JetstreamDistributedLock(kv, config)
-  await new Promise<void>(distributor.initialize.bind(distributor))
-  
-  return distributor
-}
