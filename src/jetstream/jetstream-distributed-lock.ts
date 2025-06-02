@@ -202,7 +202,6 @@ export class JetstreamDistributedLock implements IDistributedLock {
   public async wait<T>(key: string, timeoutMs: number): Promise<Readable<T>> {
     const namespacedKey = this.toNamespacedKey(key)
 
-    await this.updateKey(namespacedKey)
     const lockState = await new Promise<LockState | undefined>((resolve, reject) => 
         this.resolveOnUnlock.bind(this)(namespacedKey, timeoutMs, resolve, reject))
 
@@ -230,6 +229,8 @@ export class JetstreamDistributedLock implements IDistributedLock {
     resolve: (value: LockState | undefined) => void, 
     reject: (reason?: unknown) => void
   ) {
+    await this.updateKey(namespacedKey)
+
     const initialState = this.state.get(namespacedKey) 
     if (!initialState || !this.isLockActive(initialState.state)) {
       return resolve(initialState?.state)
@@ -285,7 +286,7 @@ export class JetstreamDistributedLock implements IDistributedLock {
 
   private async updateKey(namespacedKey: string) {
     const latest = await this.kv.get(namespacedKey)
-    if (latest) {
+    if (latest !== null) {
       this.processEntry(latest)
     }
   }
