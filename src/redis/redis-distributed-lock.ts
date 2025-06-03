@@ -1,7 +1,7 @@
 import Redis from 'ioredis'
 import { IDistributedLock, Readable, Writable, TimeoutError, LockConfiguration, LockStatus, WritableObject, validateLockConfiguration } from '../types'
 import { LockListener } from './lock-listener'
-import { tryAcquireLockLuaScript, tryWriteLockLuaScript, getLockObjLuaScript, redisPubSubChannel } from './data-model'
+import { tryAcquireLockLuaScript, tryWriteLockLuaScript, getLockObjLuaScript, redisPubSubChannel, deleteLuaScript } from './data-model'
 
 export class RedisDistributedLock implements IDistributedLock {
     private readonly lockListener: LockListener
@@ -18,7 +18,7 @@ export class RedisDistributedLock implements IDistributedLock {
         return new RedisDistributedLock(redis, config)
     }
 
-    async withLock<T>(
+    public async withLock<T>(
         key: string,
         timeoutMs: number,
         callback: (state: T | null) => Promise<T>
@@ -42,7 +42,7 @@ export class RedisDistributedLock implements IDistributedLock {
         }
     }
 
-    async acquireLock<T>(key: string, timeoutMs: number): Promise<Writable<T>> {
+    public async acquireLock<T>(key: string, timeoutMs: number): Promise<Writable<T>> {
         this.checkActive()
         const namespacedKey = this.toNamespacedKey(key)
         const lockId = crypto.randomUUID()
@@ -105,7 +105,7 @@ export class RedisDistributedLock implements IDistributedLock {
         }
     }
 
-    async releaseLock<T>(key: string, lockObj: Writable<T>): Promise<boolean> {
+    public async releaseLock<T>(key: string, lockObj: Writable<T>): Promise<boolean> {
         this.checkActive()
         const namespacedKey = this.toNamespacedKey(key)
         
@@ -126,7 +126,7 @@ export class RedisDistributedLock implements IDistributedLock {
         return success
     }
 
-    async wait<T>(key: string, timeoutMs: number): Promise<Readable<T>> {
+    public async wait<T>(key: string, timeoutMs: number): Promise<Readable<T>> {
         this.checkActive()
         const namespacedKey = this.toNamespacedKey(key)
         const listener = this.lockListener.waitUntilNotified<T>(namespacedKey, timeoutMs)
@@ -144,6 +144,28 @@ export class RedisDistributedLock implements IDistributedLock {
 
         this.lockListener.cancel(listener)
         return {value: result[1] ? JSON.parse(result[1]) as T : null}
+    }
+
+    public async delete(key: string): Promise<boolean> {
+        this.checkActive()
+        const namespacedKey = this.toNamespacedKey(key)
+
+        const lock = await this.acquireLock(namespacedKey, this.config.lockTimeoutMs)
+
+        try {
+            const result = await this.redis.eval(
+                deleteLuaScript, 
+                1, 
+                namespacedKey,
+                lock.lockId
+            )
+    
+            const success = result === 1
+            return success
+        }
+        finally {
+            await this.releaseLock(key, lock)
+        }
     }
 
     close(): void {

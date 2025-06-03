@@ -92,6 +92,11 @@ export interface IDistributedLock {
      */
     wait<T>(key: string, timeoutMs: number): Promise<Readable<T>>
 
+    /** 
+     * Deletes the lock object and lock metadata
+     */
+    delete(key: string): Promise<boolean>
+
     /** Closes the distributor and releases all resources. */
     close(): void
 }
