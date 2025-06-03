@@ -1,5 +1,5 @@
 import { KV, QueuedIterator, KvEntry, NatsConnection, StorageType, nanos } from 'nats'
-import { LockConfiguration, TimeoutError, Writable, WritableObject } from '../types'
+import { LockConfiguration, TimeoutError, validateLockConfiguration, Writable, WritableObject } from '../types'
 import { Readable } from '../types'
 import { IDistributedLock } from '../types'
 
@@ -29,6 +29,8 @@ export class JetstreamDistributedLock implements IDistributedLock {
   private constructor(private readonly kv: KV, private readonly config: LockConfiguration) { }
 
   static async connect(natsClient: NatsConnection, config: LockConfiguration): Promise<IDistributedLock> {
+    validateLockConfiguration(config)
+
     const kv = await natsClient.jetstream().views.kv(config.namespace, { bindOnly: true })
     console.log(`JetstreamDistributedLock connected to namespace ${config.namespace}: ${JSON.stringify(await kv.status())}`)
     
@@ -39,6 +41,8 @@ export class JetstreamDistributedLock implements IDistributedLock {
   }
   
   static async create(natsClient: NatsConnection, config: LockConfiguration): Promise<IDistributedLock> {
+    validateLockConfiguration(config)
+    
     const kv = await natsClient.jetstream().views.kv(config.namespace, { 
       history: 1,
       ttl: config.objectExpiryMs ? nanos(config.objectExpiryMs) : undefined,

@@ -1,5 +1,5 @@
 import Redis from 'ioredis'
-import { IDistributedLock, Readable, Writable, TimeoutError, LockConfiguration, LockStatus, WritableObject } from '../types'
+import { IDistributedLock, Readable, Writable, TimeoutError, LockConfiguration, LockStatus, WritableObject, validateLockConfiguration } from '../types'
 import { LockListener } from './lock-listener'
 import { tryAcquireLockLuaScript, tryWriteLockLuaScript, getLockObjLuaScript, redisPubSubChannel } from './data-model'
 
@@ -13,6 +13,8 @@ export class RedisDistributedLock implements IDistributedLock {
     }
 
     static async create(redis: Redis, config: LockConfiguration): Promise<IDistributedLock> {
+        validateLockConfiguration(config)
+        
         return new RedisDistributedLock(redis, config)
     }
 

@@ -23,6 +23,15 @@ export interface LockConfiguration {
     objectExpiryMs?: number
 }
 
+export function validateLockConfiguration(config: LockConfiguration) {
+    if (config.lockTimeoutMs <= 0) {
+        throw new Error('lockTimeoutMs must be greater than 0')
+    }
+    if (config.objectExpiryMs && config.objectExpiryMs <= 0) {
+        throw new Error('objectExpiryMs must be greater than 0 when set')
+    }
+}
+
 export class TimeoutError extends Error {
     constructor(key: string) {
         super(`Lock Wait Timeout for key: ${key}`)

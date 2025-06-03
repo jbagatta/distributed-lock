@@ -7,45 +7,11 @@ Designed to function like a distributed address space, the library provides wait
 ## Features
 
 - **Mutual Exclusion**: Only one process can hold a lock at any time
-- **Atomic Data Safety**: Guarantee data consistency across processes, using fencing tokens to prevent race conditions
+- **Atomic State Updates**: Guarantee data consistency across processes, using fencing tokens to prevent race conditions
 - **Automatic Timeout**: Locks automatically expire if the holding process crashes or otherwise overshoots the lock timeout
     - Object stores are configured separately from lock mechanisms and can be expired or persisted indefinitely, allowing them to function as either short-term cache or long-term storage
-- **Event-Driven**: Uses pub/sub for efficient lock release notifications, allowing wait/notify-like syntax
+- **Event-Driven**: Robust wait/notify-like syntax supported using pub/sub for lock release eventing 
 - **Multiple Backends**: Support for both Redis and Nats JetStream under the hood
-
-## Quick Start
-
-### Using Redis Backend
-```typescript
-import { RedisDistributedLock } from 'johnny-locke';
-import Redis from 'ioredis';
-
-const redis = new Redis('redis://localhost:6379')
-const lock = await RedisDistributedLock.create(redis, {
-    namespace: 'my-app',
-    lockTimeoutMs: 5000,    // Lock expires after 5 seconds
-    objectExpiryMs: 300000  // Objects expire after 5 minutes (optional)
-});
-
-// do your stuff
-
-lock.close()
-await redis.quit() // redis client is not managed by the instance
-```
-
-### Using NATS JetStream Backend
-```typescript
-import { JetstreamDistributedLock } from 'johnny-locke';
-import { connect } from 'nats';
-
-const nats = await connect({servers: ['nats://localhost:4222']})
-const lock = await JetstreamDistributedLock.create(nats, config)
-
-// do your stuff
-
-lock.close()
-await nats.close() // nats client is not managed by the instance
-```
 
 ## API Reference
 
@@ -142,6 +108,23 @@ console.log('Current state:', state.value);
 ## Implementation Details
 
 ### Redis Implementation
+```typescript
+import { RedisDistributedLock } from 'johnny-locke';
+import Redis from 'ioredis';
+
+const redis = new Redis('redis://localhost:6379')
+const lock = await RedisDistributedLock.create(redis, {
+    namespace: 'my-app',
+    lockTimeoutMs: 5000,    // Lock expires after 5 seconds
+    objectExpiryMs: 300000  // Objects expire after 5 minutes (optional)
+});
+
+// do your stuff
+
+lock.close()
+await redis.quit() // redis client is not managed by the instance
+```
+
 The Redis implementation uses:
 - Lua scripts for atomic operations
 - Hash structures for lock metadata, separate object keys for separate expiry
@@ -149,6 +132,23 @@ The Redis implementation uses:
 - Key expiration for object and lock timeouts
 
 ### Nats JetStream Implementation
+```typescript
+import { JetstreamDistributedLock } from 'johnny-locke';
+import { connect } from 'nats';
+
+const nats = await connect({servers: ['nats://localhost:4222']})
+const lock = await JetstreamDistributedLock.create(nats, {
+    namespace: 'my-app',
+    lockTimeoutMs: 5000,    // Lock expires after 5 seconds
+    objectExpiryMs: 300000  // Objects expire after 5 minutes (optional)
+})
+
+// do your stuff
+
+lock.close()
+await nats.close() // nats client is not managed by the instance
+```
+
 The Nats implementation uses:
 - JetStream for persistence
 - Key-value store for lock metadata
@@ -158,10 +158,10 @@ The Nats implementation uses:
 ## Best Practices
 
 1. **Keep Lock Times Short**: Minimize the duration locks are held to reduce contention
-2. **Use Appropriate Timeouts**: Set timeouts based on your operation's expected duration
-3. **Handle Errors**: Always implement proper error handling, especially for timeouts
-4. **Clean Up Resources**: Call `close()` when shutting down your application
-5. **Use Namespaces**: Separate different applications' locks using namespaces
+2. **Use Appropriate Timeouts**: Set timeouts based on the expected duration of state updates
+3. **Handle Errors**: Always implement proper error handling when manually locking/unlocking (or use `withLock` for convenience) to avoid relying on timeouts
+4. **Be Diligent With Resources**: Generally you should only need one `DistributedLock` instance per server (per namespace). Always clean up by calling `close()` when shutting down your application
+5. **Use Namespaces**: Isolate application locks to avoid collisions
 
 ## Running Tests
 
