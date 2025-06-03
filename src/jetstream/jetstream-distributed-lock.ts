@@ -1,5 +1,5 @@
 import { KV, QueuedIterator, KvEntry, NatsConnection, StorageType, nanos } from 'nats'
-import { LockConfiguration, TimeoutError, Writable } from '../types'
+import { LockConfiguration, TimeoutError, Writable, WritableObject } from '../types'
 import { Readable } from '../types'
 import { IDistributedLock } from '../types'
 
@@ -114,13 +114,14 @@ export class JetstreamDistributedLock implements IDistributedLock {
 
     try {
         const updatedState = await callback(lock.value) 
+        const result = lock.update(updatedState)
         
-        const updated = await this.releaseLock(key, {value: updatedState, lockId: lock.lockId!})
+        const updated = await this.releaseLock(key, result)
         if (!updated) {
           throw new TimeoutError(key)
         }
 
-        return {value: updatedState} 
+        return result
     } catch(error) {
         await this.releaseLock(key, lock)
 
@@ -144,7 +145,7 @@ export class JetstreamDistributedLock implements IDistributedLock {
         const lock = await this.createOrUpdateLock(namespacedKey, lockState)
         const lockObj = lock.value ? JSON.parse(lock.value) as T : null
 
-        return {value: lockObj, lockId: lock.lockId!}
+        return new WritableObject(lockObj, lock.lockId!)
       } catch(err) {
         // suppress timeouts and lock acquire failures, retry 
         now = Date.now()
@@ -168,7 +169,7 @@ export class JetstreamDistributedLock implements IDistributedLock {
       const lock = await this.createOrUpdateLock(namespacedKey, lockState?.state)
       const lockObj = lock.value ? JSON.parse(lock.value) as T : null
 
-      return [true, {value: lockObj, lockId: lock.lockId!}]
+      return [true, new WritableObject(lockObj, lock.lockId!)]
     } catch {
       return [false, undefined]
     }

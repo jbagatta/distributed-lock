@@ -98,7 +98,7 @@ describe.each([natsInit, redisInit])('DistributedLock', (lockInit) => {
             const lock2Promise = lock2.acquireLock<string>(key, 1000)
 
             await sleep(500)
-            await lock1.releaseLock(key, {value: 'newval', lockId: lock1Result.lockId})
+            await lock1.releaseLock(key, lock1Result.update('newval'))
             
             const lock2Result = await lock2Promise
             await lock2.releaseLock(key, lock2Result)
@@ -116,7 +116,7 @@ describe.each([natsInit, redisInit])('DistributedLock', (lockInit) => {
             const lock2Promise = lock2.acquireLock<string>(key, 1000)
             await sleep(500)
 
-            const failedLockWrite = await lock1.releaseLock(key, {value: 'NOPE', lockId: lock1Result.lockId})
+            const failedLockWrite = await lock1.releaseLock(key, lock1Result.update('NOPE'))
             expect(failedLockWrite).toBe(false)
 
             const lock2Result = await lock2Promise
@@ -131,12 +131,12 @@ describe.each([natsInit, redisInit])('DistributedLock', (lockInit) => {
 
             const value1 = crypto.randomUUID()
             const lockResult1 = await lock1.acquireLock<string>(key, 100)
-            await lock1.releaseLock(key, {value: value1, lockId: lockResult1.lockId})
+            await lock1.releaseLock(key, lockResult1.update(value1))
 
             const value2 = crypto.randomUUID()
             const lockResult2 = await lock2.acquireLock<string>(key, 100)
             expect(lockResult2.value).toBe(value1)
-            await lock2.releaseLock(key, {value: value2, lockId: lockResult2.lockId})
+            await lock2.releaseLock(key, lockResult2.update(value2))
 
             const result = await lock1.wait<string>(key, 100)
             expect(result?.value).toBe(value2)
@@ -262,7 +262,7 @@ describe.each([natsInit, redisInit])('DistributedLock', (lockInit) => {
             const result = lock2.wait<{count: number}>(key, 1000)
 
             await sleep(500)
-            await lock1.releaseLock(key, { lockId: lock1Result.lockId!, value })
+            await lock1.releaseLock(key, lock1Result.update(value))
 
             expect((await result)?.value).toEqual(value)
             
@@ -287,7 +287,7 @@ describe.each([natsInit, redisInit])('DistributedLock', (lockInit) => {
             const value = 123
             
             const lock1Result = await lock1.acquireLock<number>(key, 100)
-            const updated = await lock1.releaseLock(key, { lockId: lock1Result.lockId!, value })
+            const updated = await lock1.releaseLock(key, lock1Result.update(value))
             expect(updated).toBe(true)
             
             const finalResult = await lock2.wait<number>(key, 100)
@@ -301,7 +301,7 @@ describe.each([natsInit, redisInit])('DistributedLock', (lockInit) => {
             const lock1Result = await lock1.acquireLock<number>(key, 100)
             await sleep(config.lockTimeoutMs + 100)
 
-            const updated = await lock1.releaseLock(key, { lockId: lock1Result.lockId!, value })
+            const updated = await lock1.releaseLock(key, lock1Result.update(value))
             expect(updated).toBe(false)
             
             const finalResult = await lock2.wait<number>(key, 100)

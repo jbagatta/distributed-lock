@@ -1,7 +1,7 @@
 {
-  "name": "distributed-lock",
+  "name": "johnny-locke",
   "version": "0.1.0",
-  "description": "A distributed locking library using either Redis or NATS JetStream",
+  "description": "A robust, strongly-consistent distributed locking library that provides atomic operations across multiple processes",
   "type": "module",
   "author": "John Bagatta",
   "license": "MIT",
@@ -33,11 +33,10 @@
     "access": "public"
   },
   "keywords": [
-    "distributed-lock",
+    "johnny-locke",
     "nats",
     "jetstream",
     "redis",
-    "distributed-systems",
-    "typescript"
+    "distributed-lock"
   ]
 }

@@ -1,5 +1,5 @@
 import Redis from 'ioredis'
-import { IDistributedLock, Readable, Writable, TimeoutError, LockConfiguration, LockStatus } from '../types'
+import { IDistributedLock, Readable, Writable, TimeoutError, LockConfiguration, LockStatus, WritableObject } from '../types'
 import { LockListener } from './lock-listener'
 import { tryAcquireLockLuaScript, tryWriteLockLuaScript, getLockObjLuaScript, redisPubSubChannel } from './data-model'
 
@@ -25,13 +25,14 @@ export class RedisDistributedLock implements IDistributedLock {
 
         try {
             const updatedState = await callback(lock.value) 
+            const result = lock.update(updatedState)    
          
-            const updated = await this.releaseLock(key, {value: updatedState, lockId: lock.lockId!})
+            const updated = await this.releaseLock(key, result)
             if (!updated) {
                 throw new TimeoutError(key)
             }
 
-            return {value: updatedState} 
+            return result
         } catch(error) {
             await this.releaseLock(key, lock)
     
@@ -54,7 +55,7 @@ export class RedisDistributedLock implements IDistributedLock {
             const lock = await this.getOrCreateLock<T>(namespacedKey, lockId)
             if (lock.lockId === lockId && lock.lockStatus === 'locked') {
                 this.lockListener.cancel(listener)
-                return {value: lock.lockObj, lockId}
+                return new WritableObject(lock.lockObj, lockId)
             }
 
             // wait until notified of lock release to retry
@@ -80,7 +81,7 @@ export class RedisDistributedLock implements IDistributedLock {
 
         const lock = await this.getOrCreateLock<T>(namespacedKey, lockId)
         if (lock.lockId === lockId && lock.lockStatus === 'locked') {
-            return [true, {value: lock.lockObj, lockId}]
+            return [true, new WritableObject(lock.lockObj, lockId)]
         }
 
         return [false, undefined]

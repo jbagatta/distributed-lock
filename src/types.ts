@@ -1,10 +1,20 @@
-export type Readable<T> = {
+export interface Readable<T> {
     value: Readonly<T> | null
 }
 
-export type Writable<T> = {
+export interface Writable<T> {
     value: T | null,
     lockId: string
+    update(value: T): Writable<T>
+}
+
+export class WritableObject<T> implements Writable<T> {
+    constructor(public value: T | null, public lockId: string) {}
+
+    update(value: T): Writable<T> {
+        this.value = value
+        return this
+    }
 }
 
 export interface LockConfiguration {
