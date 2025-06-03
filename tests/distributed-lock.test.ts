@@ -35,8 +35,7 @@ describe.each([natsInit, redisInit])('DistributedLock', (lockInit) => {
     
     const config: LockConfiguration = {
         namespace: 'test-locks',
-        lockTimeoutMs: 2000,
-        objectExpiryMs: 5000
+        lockTimeoutMs: 2000
     }
 
     beforeEach(async () => {
@@ -310,7 +309,7 @@ describe.each([natsInit, redisInit])('DistributedLock', (lockInit) => {
     })
 }) 
 
-export async function sleep(ms: number) {
+async function sleep(ms: number) {
     return new Promise((res) => {
         setTimeout(res, ms)
     })

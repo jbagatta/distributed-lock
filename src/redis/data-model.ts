@@ -38,7 +38,7 @@ export const tryWriteLockLuaScript = ` \
   if (exists == 1 and redis.call('HGET', KEYS[1], '${lockIdField}') == ARGV[1]) then \
       local objKey = '${lockObjKeyPrefix}' .. KEYS[1] \
       redis.call('SET', objKey, ARGV[2]) \
-      if (ARGV[3] == -1) then \
+      if (ARGV[3] == '-1') then \
           redis.call('PERSIST', objKey) \
       else \
           redis.call('PEXPIRE', objKey, ARGV[3]) \
