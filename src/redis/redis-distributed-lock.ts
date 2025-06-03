@@ -67,24 +67,24 @@ export class RedisDistributedLock implements IDistributedLock {
         }
 
         const lastTry = await this.tryAcquireLock<T>(key)
-        if (lastTry[0]) {
-            return lastTry[1]!
+        if (lastTry.acquired) {
+            return lastTry.value!
         }
     
         throw new TimeoutError(namespacedKey)
     }
 
-    public async tryAcquireLock<T>(key: string): Promise<[boolean, Writable<T> | undefined]> {
+    public async tryAcquireLock<T>(key: string): Promise<{acquired: boolean, value: Writable<T> | undefined}> {
         this.checkActive()
         const namespacedKey = this.toNamespacedKey(key)
         const lockId = crypto.randomUUID()
 
         const lock = await this.getOrCreateLock<T>(namespacedKey, lockId)
         if (lock.lockId === lockId && lock.lockStatus === 'locked') {
-            return [true, new WritableObject(lock.lockObj, lockId)]
+            return {acquired: true, value: new WritableObject(lock.lockObj, lockId)}
         }
 
-        return [false, undefined]
+        return {acquired: false, value: undefined}
     }
 
     private async getOrCreateLock<T>(namespacedKey: string, lockId: string) {

@@ -68,7 +68,7 @@ export interface IDistributedLock {
      * Returns the current state of the lock.
      * Throws a TimeoutError if the lock is not acquired by the timeout.
      */
-    tryAcquireLock<T>(key: string): Promise<[boolean, Writable<T> | undefined]>
+    tryAcquireLock<T>(key: string): Promise<{acquired: boolean, value: Writable<T> | undefined}>
 
     /** 
      * Releases a previously acquired lock and writes the updated state 

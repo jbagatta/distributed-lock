@@ -155,8 +155,8 @@ describe.each([natsInit, redisInit])('DistributedLock', (lockInit) => {
             
             const lock1Result = await lock1.tryAcquireLock<string>(key)
 
-            expect(lock1Result[0]).toBe(true)
-            expect(lock1Result[1]!.value).toBe(value)
+            expect(lock1Result.acquired).toBe(true)
+            expect(lock1Result.value!.value).toBe(value)
         })
 
         it('should return false immediately if lock is not acquired', async () => {
@@ -172,8 +172,8 @@ describe.each([natsInit, redisInit])('DistributedLock', (lockInit) => {
 
             const lock1Result = await lock1.tryAcquireLock<string>(key)
 
-            expect(lock1Result[0]).toBe(false)
-            expect(lock1Result[1]).toBeUndefined()
+            expect(lock1Result.acquired).toBe(false)
+            expect(lock1Result.value).toBeUndefined()
 
             await lock2.releaseLock(key, lockResult2)
         })
