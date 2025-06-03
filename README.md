@@ -25,9 +25,7 @@ interface LockConfiguration {
 }
 ```
 
-### Core Methods
-
-#### `withLock<T>(key: string, timeoutMs: number, callback: (state: T | null) => Promise<T>): Promise<Readable<T>>`
+### `withLock<T>(key: string, timeoutMs: number, callback: (state: T | null) => Promise<T>): Promise<Readable<T>>`
 
 Acquires a lock and executes the callback against the current object state. Automatically releases the lock regardless of success, error or timeout.
 
@@ -43,13 +41,13 @@ const result = await lock.withLock<number>('my-key', 1000, async (state) => {
 });
 ```
 
-#### `acquireLock<T>(key: string, timeoutMs: number): Promise<Writable<T>>`
+### `acquireLock<T>(key: string, timeoutMs: number): Promise<Writable<T>>`
 
 Manually acquires a lock and returns a writable state handle. Useful for long-running operations. 
 
 The timeout provided tells the library how long to wait to *acquire the lock*, not how long to *hold it once required* (which is configured globally via `LockConfiguration.lockTimeoutMs`)
 
-#### `releaseLock<T>(key: string, Writable<T>): Promise<boolean>`
+### `releaseLock<T>(key: string, Writable<T>): Promise<boolean>`
 
 Releases the lock on the object, writing the given state back to the lock store. Notifies any waiting processes that the lock is available.
 
@@ -71,33 +69,23 @@ try {
 }
 ```
 
-#### `tryAcquireLock<T>(key: string): Promise<{acquired: boolean, value: Writable<T> | undefined}>`
+### `tryAcquireLock<T>(key: string): Promise<{acquired: boolean, value: Writable<T> | undefined}>`
 
 Attempts to acquire the lock and immediately returns success or failure.
 
 ```typescript
 const result = await lock.tryAcquireLock<string>('my-key');
 if (!result.acquired) {
-  // result.value is undefined, lock not acquired
-}
-
-try {
-    // Do work while holding the lock
-    const updated = result.value.update('updatedState')
-
-    // Write and release
-    await lock.releaseLock('my-key', updated);
-} catch (error) {
-    // release lock without updating data
-    await lock.releaseLock('my-key', result.value);
-    
-    // ...
+  // lock not acquired, result.value is undefined
+} else {
+  // lock acquired, result.value is a writable state handle
+  // be sure to release this lock as shown above
 }
 ```
 
-#### `wait<T>(key: string, timeoutMs: number): Promise<Readable<T>>`
+### `wait<T>(key: string, timeoutMs: number): Promise<Readable<T>>`
 
-Waits for `timeoutMs` for a lock to become available, returns its current state as a readonly state handle without acquiring it.
+Waits for `timeoutMs` for a lock to become available (or returns immediately if the object is not currently locked), returns its current state as a readonly state handle without acquiring the lock.
 
 ```typescript
 const state = await lock.wait('my-key', 1000);
@@ -107,31 +95,7 @@ console.log('Current state:', state.value);
 
 ## Implementation Details
 
-### Redis Implementation
-```typescript
-import { RedisDistributedLock } from 'johnny-locke';
-import Redis from 'ioredis';
-
-const redis = new Redis('redis://localhost:6379')
-const lock = await RedisDistributedLock.create(redis, {
-    namespace: 'my-app',
-    lockTimeoutMs: 5000,    // Lock expires after 5 seconds
-    objectExpiryMs: 300000  // Objects expire after 5 minutes (optional)
-});
-
-// do your stuff
-
-lock.close()
-await redis.quit() // redis client is not managed by the instance
-```
-
-The Redis implementation uses:
-- Lua scripts for atomic operations
-- Hash structures for lock metadata, separate object keys for separate expiry
-- Redis Pub/Sub for lock release notifications
-- Key expiration for object and lock timeouts
-
-### Nats JetStream Implementation
+### Nats JetStream K/V
 ```typescript
 import { JetstreamDistributedLock } from 'johnny-locke';
 import { connect } from 'nats';
@@ -150,10 +114,42 @@ await nats.close() // nats client is not managed by the instance
 ```
 
 The Nats implementation uses:
-- JetStream for persistence
-- Key-value store for lock metadata
+- JetStream K/V messages for atomic operations
+- Key-value store for lock metadata, revision/seqID validation for fencing tokens
 - K/V stream consumer for lock release notifications
-- Stream TTL for object expiry (manual lock timeouts)
+- Stream message TTL for object expiry, manual lock timeout enforcement
+
+Jetstream uses RAFT consensus under the hood for stream state consistency, which provides strong CP consistency under network partition (and some fault tolernace for high availability, using 3/5 replicas). 
+
+### Redis
+```typescript
+import { RedisDistributedLock } from 'johnny-locke';
+import Redis from 'ioredis';
+
+const redis = new Redis('redis://localhost:6379')
+const lock = await RedisDistributedLock.create(redis, {
+    namespace: 'my-app',
+    lockTimeoutMs: 5000,    // Lock expires after 5 seconds
+    objectExpiryMs: 300000  // Objects expire after 5 minutes (optional)
+});
+
+// do your stuff
+
+lock.close()
+await redis.quit() // redis client is not managed by the instance
+```
+
+The Redis implementation uses:
+- Lua scripting for atomic operations
+    - Order of operations is important here to maintain strong consistency and timeout support even if a server crashes in the middle of a script execution
+- Hash structures for lock metadata + fencing tokens
+    - Separate key for object storage to support separate expiry/persistence
+- Redis Pub/Sub for lock release notifications
+- Key expiration for both object and lock timeouts
+
+As opposed to Jetstream, Redis replication does not inherently support strong CP consistency because replication is asynchronous by default. Redis 3.0 introduced the `WAIT` command to enforce synchronous replication to a certain number of replicas before acknowledging a write, but even this doesn't wholly solve the underlying problem, since the replication is not a rigorously CP operation (in the way that RAFT consensus is). The primary server and some replicas may differ from other replicas if the primary crashes in the middle of a `WAIT` command that has not yet replicated data to all replicas. The resulting state of the lock and the object itself is then indeterminate, since it depends on which replica is promoted to primary, and whether or not it received the replication of that data.
+
+Fortunately, the use of fencing tokens provides consistency despite the above race condition. The fencing tokens are atomic with the lock data itself, so while a process may lose a lock it believes it maintains, that process will not be able to write any data with the lost lock. Mutual exclusion and atomicity are maintained in this cases, which may not be fair but remains strongly consistent and deterministic.
 
 ## Best Practices
 
