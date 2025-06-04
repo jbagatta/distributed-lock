@@ -1,6 +1,7 @@
 import Redis from 'ioredis'
 import { RedisDistributedLock } from '../src/redis/redis-distributed-lock'
-import { IDistributedLock, TimeoutError, LockConfiguration, Readable } from '../src/types'
+import { IDistributedLock, Readable } from '../src/types'
+import { TimeoutError, LockConfiguration } from '../src/util'
 import { connect } from 'nats'
 import { JetstreamDistributedLock } from '../src/jetstream/jetstream-distributed-lock'
 

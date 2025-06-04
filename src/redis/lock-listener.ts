@@ -1,5 +1,5 @@
 import { Redis } from "ioredis"
-import { TimeoutError } from "../types"
+import { TimeoutError } from "../util"
 import { redisPubSubChannel } from "./data-model"
 
 export class LockListener {
