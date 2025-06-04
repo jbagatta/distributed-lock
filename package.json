@@ -1,6 +1,6 @@
 {
-  "name": "johnny-locke",
-  "version": "0.4.0",
+  "name": "@jbagatta/johnny-locke",
+  "version": "0.5.0",
   "description": "A robust, strongly-consistent distributed locking library that provides atomic operations across multiple processes",
   "type": "module",
   "author": "John Bagatta",
