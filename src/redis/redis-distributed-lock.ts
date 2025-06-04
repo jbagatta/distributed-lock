@@ -160,13 +160,6 @@ export class RedisDistributedLock implements IDistributedLock {
         return await this.releaseLock(key, lock.update(null))
     }
 
-    public async resetExpiry(key: string): Promise<boolean> {
-      this.checkActive()
-   
-      const lock = await this.acquireLock(key, this.config.defaultLockDurationMs)
-      return await this.releaseLock(key, lock)
-    }
-
     close(): void {
         this.lockListener.close()
         this.active = false

@@ -71,11 +71,6 @@ export interface IDistributedLock {
      */
     delete(key: string): Promise<boolean>
 
-    /*
-     * Reset the lock object expiry - for sliding expiration features
-     */
-    resetExpiry(key: string): Promise<boolean>
-
     /** Closes the distributor and releases all resources. */
     close(): void
 }
