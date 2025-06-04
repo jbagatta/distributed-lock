@@ -218,8 +218,9 @@ export class JetstreamDistributedLock implements IDistributedLock {
 
   public async delete(key: string): Promise<boolean> {
     this.checkActive()
-
+ 
     const lock = await this.acquireLock(key, this.config.lockTimeoutMs)
+
     return await this.releaseLock(key, lock.update(null))
   }
 

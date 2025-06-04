@@ -148,24 +148,10 @@ export class RedisDistributedLock implements IDistributedLock {
 
     public async delete(key: string): Promise<boolean> {
         this.checkActive()
-        const namespacedKey = this.toNamespacedKey(key)
 
         const lock = await this.acquireLock(key, this.config.lockTimeoutMs)
 
-        try {
-            const result = await this.redis.eval(
-                deleteLuaScript, 
-                1, 
-                namespacedKey,
-                lock.lockId
-            )
-    
-            const success = result === 1
-            return success
-        }
-        finally {
-            await this.releaseLock(key, lock)
-        }
+        return await this.releaseLock(key, lock.update(null))
     }
 
     close(): void {

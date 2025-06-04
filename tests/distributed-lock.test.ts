@@ -309,7 +309,7 @@ describe.each([natsInit, redisInit])('DistributedLock', (lockInit) => {
     })
 
     describe('delete', () => {
-        it.only('should delete the lock object and return true', async () => {
+        it('should delete the lock object and return true', async () => {
             const key = crypto.randomUUID()
             const value = 123
 
