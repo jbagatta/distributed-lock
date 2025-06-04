@@ -1,7 +1,7 @@
 import Redis from 'ioredis'
 import { IDistributedLock, Readable, Writable, TimeoutError, LockConfiguration, LockStatus, WritableObject, validateLockConfiguration } from '../types'
 import { LockListener } from './lock-listener'
-import { tryAcquireLockLuaScript, tryWriteLockLuaScript, getLockObjLuaScript, redisPubSubChannel, deleteLuaScript } from './data-model'
+import { tryAcquireLockLuaScript, tryWriteLockLuaScript, getLockObjLuaScript } from './data-model'
 
 export class RedisDistributedLock implements IDistributedLock {
     private readonly lockListener: LockListener
@@ -150,7 +150,6 @@ export class RedisDistributedLock implements IDistributedLock {
         this.checkActive()
 
         const lock = await this.acquireLock(key, this.config.lockTimeoutMs)
-
         return await this.releaseLock(key, lock.update(null))
     }
 

@@ -58,18 +58,3 @@ export const getLockObjLuaScript = ` \
   local lockStatus = redis.call('HGET', KEYS[1], '${lockStatusField}') \
   return {lockStatus, lockObj} \
 `
-
-// KEYS[1] = namespacedKey
-//   objKey = data-store.namespacedKey
-// ARGV[1] = lockId
-export const deleteLuaScript = ` \
-  local exists = redis.call('EXISTS', KEYS[1]) \
-  if (exists == 1 and redis.call('HGET', KEYS[1], '${lockIdField}') == ARGV[1]) then \
-    local objKey = '${lockObjKeyPrefix}' .. KEYS[1] \
-    redis.call('DEL', KEYS[1]) \
-    redis.call('DEL', objKey) \
-    return true \
-  else \
-    return false \
-  end \
-`
