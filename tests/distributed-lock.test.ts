@@ -1,7 +1,7 @@
 import Redis from 'ioredis'
 import { RedisDistributedLock } from '../src/redis/redis-distributed-lock'
-import { IDistributedLock, Readable } from '../src/types'
-import { TimeoutError, LockConfiguration } from '../src/util'
+import { IDistributedLock, LockConfiguration, Readable } from '../src/types'
+import { TimeoutError } from '../src/util'
 import { connect } from 'nats'
 import { JetstreamDistributedLock } from '../src/jetstream/jetstream-distributed-lock'
 
@@ -36,7 +36,7 @@ describe.each([natsInit, redisInit])('DistributedLock', (lockInit) => {
     
     const config: LockConfiguration = {
         namespace: 'test-locks',
-        lockTimeoutMs: 2000
+        defaultLockDurationMs: 2000
     }
 
     beforeEach(async () => {
@@ -86,7 +86,7 @@ describe.each([natsInit, redisInit])('DistributedLock', (lockInit) => {
 
             const lock = await lock1.acquireLock<string>(key, 500)
             
-            await expect(lock2.acquireLock<string>(key, 100)).rejects.toThrow(TimeoutError)
+            await expect(lock2.acquireLock<string>(key, 500)).rejects.toThrow(TimeoutError)
 
             await lock1.releaseLock(key, lock)
         })
@@ -110,8 +110,8 @@ describe.each([natsInit, redisInit])('DistributedLock', (lockInit) => {
         it('should expire lock after timeout', async () => {
             const key = crypto.randomUUID()
 
-            const lock1Result = await lock1.acquireLock<string>(key, 100)
-            await sleep(config.lockTimeoutMs - 200)
+            const lock1Result = await lock1.acquireLock<string>(key, 500)
+            await sleep(config.defaultLockDurationMs - 200)
 
             const lock2Promise = lock2.acquireLock<string>(key, 1000)
             await sleep(500)
@@ -124,6 +124,16 @@ describe.each([natsInit, redisInit])('DistributedLock', (lockInit) => {
 
             expect(lock2Release).toBe(true)
             expect(lock2Result.value).toBeNull()
+        })
+
+        it('should honor custom lock duration', async () => {
+            const key = crypto.randomUUID()
+
+            const lock1Result = await lock1.acquireLock<string>(key, 500, config.defaultLockDurationMs + 1000)
+            await sleep(config.defaultLockDurationMs + 200)
+
+            const lockWrite = await lock1.releaseLock(key, lock1Result.update('NOPE'))
+            expect(lockWrite).toBe(true)
         })
 
         it('should maintain data consistency when multiple processes try to modify the same object', async () => {
@@ -217,7 +227,7 @@ describe.each([natsInit, redisInit])('DistributedLock', (lockInit) => {
             const key = crypto.randomUUID()
             
             await expect(lock1.withLock(key, 100, async () => {
-                await sleep(config.lockTimeoutMs + 100)
+                await sleep(config.defaultLockDurationMs + 100)
                 return 'NOPE'
             })).rejects.toThrow(TimeoutError)
             
@@ -299,7 +309,7 @@ describe.each([natsInit, redisInit])('DistributedLock', (lockInit) => {
             const value = 123
             
             const lock1Result = await lock1.acquireLock<number>(key, 100)
-            await sleep(config.lockTimeoutMs + 100)
+            await sleep(config.defaultLockDurationMs + 100)
 
             const updated = await lock1.releaseLock(key, lock1Result.update(value))
             expect(updated).toBe(false)

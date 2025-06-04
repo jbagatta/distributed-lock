@@ -1,6 +1,6 @@
 import Redis from 'ioredis'
-import { IDistributedLock, Readable, Writable } from '../types'
-import { LockConfiguration, LockStatus, computeLockDuration, TimeoutError, validateLockConfiguration, WritableObject } from '../util'
+import { LockConfiguration, IDistributedLock, Readable, Writable } from '../types'
+import { LockStatus, computeLockDuration, TimeoutError, validateLockConfiguration, WritableObject } from '../util'
 import { LockListener } from './lock-listener'
 import { tryAcquireLockLuaScript, tryWriteLockLuaScript, getLockObjLuaScript } from './data-model'
 
@@ -49,11 +49,11 @@ export class RedisDistributedLock implements IDistributedLock {
         const namespacedKey = this.toNamespacedKey(key)
         const lockId = crypto.randomUUID()
 
-        const duration = computeLockDuration(this.config.lockTimeoutMs, lockDuration)
+        const duration = computeLockDuration(this.config.defaultLockDurationMs, lockDuration)
         
         let now = Date.now()
         const deadline = now + timeoutMs
-        while (now <= deadline) {
+        while (now < deadline) {
           try {
             const unlockTimeout = deadline - now
 
@@ -87,7 +87,7 @@ export class RedisDistributedLock implements IDistributedLock {
         const namespacedKey = this.toNamespacedKey(key)
         const lockId = crypto.randomUUID()
 
-        const duration = computeLockDuration(this.config.lockTimeoutMs, lockDuration)
+        const duration = computeLockDuration(this.config.defaultLockDurationMs, lockDuration)
         const lock = await this.getOrCreateLock<T>(namespacedKey, lockId, duration)
         if (lock.lockId === lockId && lock.lockStatus === 'locked') {
             return {acquired: true, value: new WritableObject(lock.lockObj, lockId)}
@@ -156,14 +156,14 @@ export class RedisDistributedLock implements IDistributedLock {
     public async delete(key: string): Promise<boolean> {
         this.checkActive()
 
-        const lock = await this.acquireLock(key, this.config.lockTimeoutMs)
+        const lock = await this.acquireLock(key, this.config.defaultLockDurationMs)
         return await this.releaseLock(key, lock.update(null))
     }
 
     public async resetExpiry(key: string): Promise<boolean> {
       this.checkActive()
    
-      const lock = await this.acquireLock(key, this.config.lockTimeoutMs)
+      const lock = await this.acquireLock(key, this.config.defaultLockDurationMs)
       return await this.releaseLock(key, lock)
     }
 

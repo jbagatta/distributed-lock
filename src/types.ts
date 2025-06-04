@@ -8,6 +8,12 @@ export interface Writable<T> {
     update(value: T | null): Writable<T>
 }
 
+export interface LockConfiguration {
+    namespace: string
+    defaultLockDurationMs: number
+    objectExpiryMs?: number
+}
+
 /**
  * A distributed locking system that provides atomic operations across multiple processes.
  * 

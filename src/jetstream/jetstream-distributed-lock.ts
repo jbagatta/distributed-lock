@@ -1,8 +1,6 @@
 import { KV, QueuedIterator, KvEntry, NatsConnection, StorageType, nanos } from 'nats'
-import { Writable } from '../types'
-import { LockConfiguration, computeLockDuration, TimeoutError, validateLockConfiguration, WritableObject } from '../util'
-import { Readable } from '../types'
-import { IDistributedLock } from '../types'
+import { LockConfiguration, Readable, Writable, IDistributedLock } from '../types'
+import { computeLockDuration, TimeoutError, validateLockConfiguration, WritableObject } from '../util'
 
 type LockStatus = 'locked' | 'unlocked' | 'expired'
 interface LockMessage {
@@ -141,12 +139,12 @@ export class JetstreamDistributedLock implements IDistributedLock {
     this.checkActive()
     const namespacedKey = this.toNamespacedKey(key)
 
-    const duration = computeLockDuration(this.config.lockTimeoutMs, lockDuration)
+    const duration = computeLockDuration(this.config.defaultLockDurationMs, lockDuration)
 
     let now = Date.now()
     const deadline = now + timeoutMs
 
-    while (now <= deadline) {
+    while (now < deadline) {
       try {
         const unlockTimeout = deadline - now
         const lockState = await new Promise<LockState | undefined>((resolve, reject) => 
@@ -176,7 +174,7 @@ export class JetstreamDistributedLock implements IDistributedLock {
         return {acquired: false, value: undefined}
       }
 
-      const duration = computeLockDuration(this.config.lockTimeoutMs, lockDuration)
+      const duration = computeLockDuration(this.config.defaultLockDurationMs, lockDuration)
       const lock = await this.createOrUpdateLock(namespacedKey, duration, lockState?.state)
       const lockObj = lock.value ? JSON.parse(lock.value) as T : null
 
@@ -228,7 +226,7 @@ export class JetstreamDistributedLock implements IDistributedLock {
   public async delete(key: string): Promise<boolean> {
     this.checkActive()
  
-    const lock = await this.acquireLock(key, this.config.lockTimeoutMs)
+    const lock = await this.acquireLock(key, this.config.defaultLockDurationMs)
 
     return await this.releaseLock(key, lock.update(null))
   }
@@ -236,7 +234,7 @@ export class JetstreamDistributedLock implements IDistributedLock {
   public async resetExpiry(key: string): Promise<boolean> {
     this.checkActive()
  
-    const lock = await this.acquireLock(key, this.config.lockTimeoutMs)
+    const lock = await this.acquireLock(key, this.config.defaultLockDurationMs)
     return await this.releaseLock(key, lock)
   }
 

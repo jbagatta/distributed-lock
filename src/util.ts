@@ -1,4 +1,4 @@
-import { Writable } from "./types"
+import { LockConfiguration, Writable } from "./types"
 
 export class WritableObject<T> implements Writable<T> {
     constructor(public value: T | null, public lockId: string) {}
@@ -9,14 +9,8 @@ export class WritableObject<T> implements Writable<T> {
     }
 }
 
-export interface LockConfiguration {
-    namespace: string
-    lockTimeoutMs: number
-    objectExpiryMs?: number
-}
-
 export function validateLockConfiguration(config: LockConfiguration) {
-    if (config.lockTimeoutMs <= 0) {
+    if (config.defaultLockDurationMs <= 0) {
         throw new Error('lockTimeoutMs must be greater than 0')
     }
     if (config.objectExpiryMs && config.objectExpiryMs <= 0) {
