@@ -1,5 +1,6 @@
 import { KV, QueuedIterator, KvEntry, NatsConnection, StorageType, nanos } from 'nats'
-import { LockConfiguration, TimeoutError, validateLockConfiguration, Writable, WritableObject } from '../types'
+import { Writable } from '../types'
+import { LockConfiguration, computeLockDuration, TimeoutError, validateLockConfiguration, WritableObject } from '../util'
 import { Readable } from '../types'
 import { IDistributedLock } from '../types'
 
@@ -7,7 +8,9 @@ type LockStatus = 'locked' | 'unlocked' | 'expired'
 interface LockMessage {
     status: LockStatus
     lockId?: string,
-    value?: string
+    value?: string,
+    ttlMs: number,
+    createdTime: number
 }
 interface LockState extends LockMessage {
     revision?: number
@@ -94,9 +97,9 @@ export class JetstreamDistributedLock implements IDistributedLock {
     try {
       const lockState = entry.operation === 'PUT'
         ? JSON.parse(entry.string()) as LockMessage
-        : {status: 'expired'} as LockMessage
+        : {status: 'expired', ttlMs: 0, createdTime: entry.created.getTime()} as LockMessage
 
-      this.updateLocalState(entry.key, lockState, entry.revision)
+      this.updateLocalState(entry.key, lockState, entry.revision, entry.created.getTime())
     } catch (error) {
       console.error(`Could not process entry ${entry.key}, revision: ${entry.revision}, error: ${error}`)
     }
@@ -112,9 +115,10 @@ export class JetstreamDistributedLock implements IDistributedLock {
   public async withLock<T>(
     key: string,
     timeoutMs: number,
-    callback: (state: T| null) => Promise<T>
+    callback: (state: T| null) => Promise<T>,
+    lockDuration?: number
   ): Promise<Readable<T>> {
-    const lock = await this.acquireLock<T>(key, timeoutMs)
+    const lock = await this.acquireLock<T>(key, timeoutMs, lockDuration)
 
     try {
         const updatedState = await callback(lock.value) 
@@ -133,9 +137,11 @@ export class JetstreamDistributedLock implements IDistributedLock {
     }
   }
 
-  public async acquireLock<T>(key: string, timeoutMs: number): Promise<Writable<T>> {
+  public async acquireLock<T>(key: string, timeoutMs: number, lockDuration?: number): Promise<Writable<T>> {
     this.checkActive()
     const namespacedKey = this.toNamespacedKey(key)
+
+    const duration = computeLockDuration(this.config.lockTimeoutMs, lockDuration)
 
     let now = Date.now()
     const deadline = now + timeoutMs
@@ -146,7 +152,7 @@ export class JetstreamDistributedLock implements IDistributedLock {
         const lockState = await new Promise<LockState | undefined>((resolve, reject) => 
             this.resolveOnUnlock.bind(this)(namespacedKey, unlockTimeout, resolve, reject))
 
-        const lock = await this.createOrUpdateLock(namespacedKey, lockState)
+        const lock = await this.createOrUpdateLock(namespacedKey, duration, lockState)
         const lockObj = lock.value ? JSON.parse(lock.value) as T : null
 
         return new WritableObject(lockObj, lock.lockId!)
@@ -159,7 +165,7 @@ export class JetstreamDistributedLock implements IDistributedLock {
     throw new TimeoutError(namespacedKey)
   }
 
-  public async tryAcquireLock<T>(key: string): Promise<{acquired: boolean, value: Writable<T> | undefined}> {
+  public async tryAcquireLock<T>(key: string, lockDuration?: number): Promise<{acquired: boolean, value: Writable<T> | undefined}> {
     this.checkActive()
     const namespacedKey = this.toNamespacedKey(key)
 
@@ -170,7 +176,8 @@ export class JetstreamDistributedLock implements IDistributedLock {
         return {acquired: false, value: undefined}
       }
 
-      const lock = await this.createOrUpdateLock(namespacedKey, lockState?.state)
+      const duration = computeLockDuration(this.config.lockTimeoutMs, lockDuration)
+      const lock = await this.createOrUpdateLock(namespacedKey, duration, lockState?.state)
       const lockObj = lock.value ? JSON.parse(lock.value) as T : null
 
       return {acquired: true, value: new WritableObject(lockObj, lock.lockId!)}
@@ -188,13 +195,15 @@ export class JetstreamDistributedLock implements IDistributedLock {
         const newLock = {
             status: 'unlocked' as LockStatus,
             lockId: lockObj.lockId,
-            value: lockObj.value ? JSON.stringify(lockObj.value) : undefined
+            value: lockObj.value ? JSON.stringify(lockObj.value) : undefined,
+            createdTime: lockState.state.createdTime,
+            ttlMs: lockState.state.ttlMs
         } as LockMessage
     
         try {
           const revision = await this.kv.update(namespacedKey, JSON.stringify(newLock), lockState.state.revision!)
 
-          this.updateLocalState(namespacedKey, newLock, revision)
+          this.updateLocalState(namespacedKey, newLock, revision, newLock.createdTime)
           return true
         } catch (error) {
           console.error(`Could not release lock ${namespacedKey}, error: ${error}`)
@@ -231,18 +240,20 @@ export class JetstreamDistributedLock implements IDistributedLock {
     return await this.releaseLock(key, lock)
   }
 
-  private async createOrUpdateLock(namespacedKey: string, lockState: LockState | undefined): Promise<LockState> {
+  private async createOrUpdateLock(namespacedKey: string, duration: number, lockState: LockState | undefined): Promise<LockState> {
     const newLock = {
         status: 'locked' as LockStatus,
         lockId: crypto.randomUUID(),
-        value: lockState?.value
+        value: lockState?.value,
+        ttlMs: duration,
+        createdTime: Date.now(),
     } as LockMessage
 
     const revision = lockState?.revision 
         ? await this.kv.update(namespacedKey, JSON.stringify(newLock), lockState.revision)
         : await this.kv.create(namespacedKey, JSON.stringify(newLock))
 
-    return this.updateLocalState(namespacedKey, newLock, revision)
+    return this.updateLocalState(namespacedKey, newLock, revision, newLock.createdTime)
   }
 
   private async resolveOnUnlock(
@@ -282,10 +293,12 @@ export class JetstreamDistributedLock implements IDistributedLock {
   }
 
   private isLockActive(lockState: LockState): boolean {
-    return lockState.status === 'locked' && (lockState.timestamp + this.config.lockTimeoutMs >= Date.now())
+    const drift = lockState.timestamp - lockState.createdTime
+    const expiryWithDrift = Date.now() + drift
+    return lockState.status === 'locked' && (lockState.createdTime + lockState.ttlMs >= expiryWithDrift)
   }
 
-  private updateLocalState(namespacedKey: string, lockMessage: LockMessage, newRevision: number): LockState {
+  private updateLocalState(namespacedKey: string, lockMessage: LockMessage, newRevision: number, time: number): LockState {
     const oldValue = this.state.get(namespacedKey)
     if (oldValue?.state?.revision && oldValue.state.revision >= newRevision) {
       return oldValue.state
@@ -295,7 +308,7 @@ export class JetstreamDistributedLock implements IDistributedLock {
       state: {
         ...lockMessage,
         revision: newRevision,
-        timestamp: Date.now()
+        timestamp: time
       }, 
       watchers: oldValue?.watchers ?? new Map<string, MessageHandler>()
     }

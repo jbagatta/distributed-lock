@@ -33,6 +33,8 @@ export class TimeoutError extends Error {
 
 export type LockStatus = 'locked' | 'unlocked' | 'expired'
 
-export function lockTimeout(requestedTimeout: number, defaultTimeout: number) {
+export function computeLockDuration(defaultTimeout: number, requestedTimeout?: number) {
+    if (!requestedTimeout) return defaultTimeout
+
     return Math.max(requestedTimeout, defaultTimeout)
 }

@@ -1,5 +1,6 @@
 import Redis from 'ioredis'
-import { IDistributedLock, Readable, Writable, TimeoutError, LockConfiguration, LockStatus, WritableObject, validateLockConfiguration } from '../types'
+import { IDistributedLock, Readable, Writable } from '../types'
+import { LockConfiguration, LockStatus, computeLockDuration, TimeoutError, validateLockConfiguration, WritableObject } from '../util'
 import { LockListener } from './lock-listener'
 import { tryAcquireLockLuaScript, tryWriteLockLuaScript, getLockObjLuaScript } from './data-model'
 
@@ -21,9 +22,10 @@ export class RedisDistributedLock implements IDistributedLock {
     public async withLock<T>(
         key: string,
         timeoutMs: number,
-        callback: (state: T | null) => Promise<T>
+        callback: (state: T | null) => Promise<T>, 
+        lockDuration?: number
     ): Promise<Readable<T>> {
-        const lock = await this.acquireLock<T>(key, timeoutMs)
+        const lock = await this.acquireLock<T>(key, timeoutMs, lockDuration)
 
         try {
             const updatedState = await callback(lock.value) 
@@ -42,19 +44,23 @@ export class RedisDistributedLock implements IDistributedLock {
         }
     }
 
-    public async acquireLock<T>(key: string, timeoutMs: number): Promise<Writable<T>> {
+    public async acquireLock<T>(key: string, timeoutMs: number, lockDuration?: number): Promise<Writable<T>> {
         this.checkActive()
         const namespacedKey = this.toNamespacedKey(key)
         const lockId = crypto.randomUUID()
 
+        const duration = computeLockDuration(this.config.lockTimeoutMs, lockDuration)
+        
         let now = Date.now()
         const deadline = now + timeoutMs
         while (now <= deadline) {
           try {
-            // initialize listener before trying to acquire lock to avoid race condition
-            const listener = this.lockListener.waitUntilNotified<T>(namespacedKey, timeoutMs)
+            const unlockTimeout = deadline - now
 
-            const lock = await this.getOrCreateLock<T>(namespacedKey, lockId)
+            // initialize listener before trying to acquire lock to avoid race condition
+            const listener = this.lockListener.waitUntilNotified<T>(namespacedKey, unlockTimeout)
+
+            const lock = await this.getOrCreateLock<T>(namespacedKey, lockId, duration)
             if (lock.lockId === lockId && lock.lockStatus === 'locked') {
                 this.lockListener.cancel(listener)
                 return new WritableObject(lock.lockObj, lockId)
@@ -76,12 +82,13 @@ export class RedisDistributedLock implements IDistributedLock {
         throw new TimeoutError(namespacedKey)
     }
 
-    public async tryAcquireLock<T>(key: string): Promise<{acquired: boolean, value: Writable<T> | undefined}> {
+    public async tryAcquireLock<T>(key: string, lockDuration?: number): Promise<{acquired: boolean, value: Writable<T> | undefined}> {
         this.checkActive()
         const namespacedKey = this.toNamespacedKey(key)
         const lockId = crypto.randomUUID()
 
-        const lock = await this.getOrCreateLock<T>(namespacedKey, lockId)
+        const duration = computeLockDuration(this.config.lockTimeoutMs, lockDuration)
+        const lock = await this.getOrCreateLock<T>(namespacedKey, lockId, duration)
         if (lock.lockId === lockId && lock.lockStatus === 'locked') {
             return {acquired: true, value: new WritableObject(lock.lockObj, lockId)}
         }
@@ -89,13 +96,13 @@ export class RedisDistributedLock implements IDistributedLock {
         return {acquired: false, value: undefined}
     }
 
-    private async getOrCreateLock<T>(namespacedKey: string, lockId: string) {
+    private async getOrCreateLock<T>(namespacedKey: string, lockId: string, timeout: number) {
         const result = await this.redis.eval(
             tryAcquireLockLuaScript,
             1,
             namespacedKey,
             lockId,
-            this.config.lockTimeoutMs
+            timeout
         )  as (string | null)[]
 
         return {

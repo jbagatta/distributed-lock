@@ -22,14 +22,16 @@ export interface Writable<T> {
  */
 export interface IDistributedLock {
     /**
-     * Acquires a lock and executes the callback on the locked state.
+     * Waits for timeoutMs milliseconds to acquire a lock for the 
+     * given key, then executes the callback on the locked state.
      * On success, writes the updated state.
      * Automatically releases the lock on success or failure.
      */
     withLock<T>(
         key: string, 
         timeoutMs: number, 
-        callback: (state: T | null) => Promise<T>
+        callback: (state: T | null) => Promise<T>,
+        lockDuration?: number
     ): Promise<Readable<T>>
 
     /** 
@@ -37,14 +39,13 @@ export interface IDistributedLock {
      * Returns the current state of the lock.
      * Throws a TimeoutError if the lock is not acquired by the timeout.
      */
-    acquireLock<T>(key: string, timeoutMs: number): Promise<Writable<T>>
+    acquireLock<T>(key: string, timeoutMs: number, lockDuration?: number): Promise<Writable<T>>
 
     /** 
-     * Waits for timeoutMs milliseconds to acquire a lock for the given key. 
-     * Returns the current state of the lock.
-     * Throws a TimeoutError if the lock is not acquired by the timeout.
+     * Attempts to acquire the lock and immediately returns success or failure 
+     * Returns the current state of the lock if acquired.
      */
-    tryAcquireLock<T>(key: string): Promise<{acquired: boolean, value: Writable<T> | undefined}>
+    tryAcquireLock<T>(key: string, lockDuration?: number): Promise<{acquired: boolean, value: Writable<T> | undefined}>
 
     /** 
      * Releases a previously acquired lock and writes the updated state 

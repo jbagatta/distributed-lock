@@ -84,7 +84,7 @@ describe.each([natsInit, redisInit])('DistributedLock', (lockInit) => {
         it('should throw TimeoutError when lock cannot be acquired within timeout', async () => {
             const key = crypto.randomUUID()
 
-            const lock = await lock1.acquireLock<string>(key, 100)
+            const lock = await lock1.acquireLock<string>(key, 500)
             
             await expect(lock2.acquireLock<string>(key, 100)).rejects.toThrow(TimeoutError)
 
