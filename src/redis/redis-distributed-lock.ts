@@ -150,7 +150,7 @@ export class RedisDistributedLock implements IDistributedLock {
         this.checkActive()
         const namespacedKey = this.toNamespacedKey(key)
 
-        const lock = await this.acquireLock(namespacedKey, this.config.lockTimeoutMs)
+        const lock = await this.acquireLock(key, this.config.lockTimeoutMs)
 
         try {
             const result = await this.redis.eval(

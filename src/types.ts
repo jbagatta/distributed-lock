@@ -5,13 +5,13 @@ export interface Readable<T> {
 export interface Writable<T> {
     value: T | null,
     lockId: string
-    update(value: T): Writable<T>
+    update(value: T | null): Writable<T>
 }
 
 export class WritableObject<T> implements Writable<T> {
     constructor(public value: T | null, public lockId: string) {}
 
-    update(value: T): Writable<T> {
+    update(value: T | null): Writable<T> {
         this.value = value
         return this
     }

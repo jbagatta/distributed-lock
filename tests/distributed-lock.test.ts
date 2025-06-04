@@ -307,6 +307,25 @@ describe.each([natsInit, redisInit])('DistributedLock', (lockInit) => {
             expect(finalResult.value).toBeNull()
         })
     })
+
+    describe('delete', () => {
+        it.only('should delete the lock object and return true', async () => {
+            const key = crypto.randomUUID()
+            const value = 123
+
+            await lock1.withLock<number>(key, 100, async (state) => {
+                expect(state).toBeNull()
+                return value
+            })
+
+            expect((await lock1.wait<number>(key, 100)).value).toEqual(value)
+
+            const result = await lock2.delete(key)
+            expect(result).toBe(true)
+
+            expect((await lock1.wait<number>(key, 100)).value).toBeNull()
+        })
+    })
 }) 
 
 async function sleep(ms: number) {

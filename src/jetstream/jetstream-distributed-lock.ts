@@ -218,14 +218,9 @@ export class JetstreamDistributedLock implements IDistributedLock {
 
   public async delete(key: string): Promise<boolean> {
     this.checkActive()
-    const namespacedKey = this.toNamespacedKey(key)
 
-    const lockState = await new Promise<LockState | undefined>((resolve, reject) => 
-      this.resolveOnUnlock.bind(this)(namespacedKey, this.config.lockTimeoutMs, resolve, reject))
-
-    await this.kv.delete(key, {previousSeq: lockState?.revision})
-    
-    return lockState !== undefined
+    const lock = await this.acquireLock(key, this.config.lockTimeoutMs)
+    return await this.releaseLock(key, lock.update(null))
   }
 
   private async createOrUpdateLock(namespacedKey: string, lockState: LockState | undefined): Promise<LockState> {
