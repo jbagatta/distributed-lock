@@ -19,8 +19,8 @@ Designed to function like a distributed address space, the library provides wait
 
 ```typescript
 interface LockConfiguration {
-    namespace: string;       // Prefix for all keys in the backend
-    lockTimeoutMs: number;   // How long locks are held before auto-expiry
+    namespace: string;                 // Prefix for all keys in the backend
+    defaultLockDurationMs: number;     // How long locks are held before auto-expiry
     objectExpiryMs?: number; // Optional: How long objects persist after last access
     replication?: number;    // Optional: replication for the nats or redis cluster
 }
@@ -57,16 +57,14 @@ Returns true if the lock was released and the value written, false otherwise (i.
 ```typescript
 const lockObj = await lock.acquireLock<string>('my-key', 1000);
 try {
-    // Do work while holding the lock
+    // do work while holding the lock
     const updated = lockObj.update('updatedState')
 
-    // Write and release
+    // write and release
     await lock.releaseLock('my-key', updated);
 } catch (error) {
     // release lock without updating data
     await lock.releaseLock('my-key', lockObj);
-    
-    // ...
 }
 ```
 
@@ -104,14 +102,14 @@ import { connect } from 'nats';
 const nats = await connect({servers: ['nats://localhost:4222']})
 const lock = await JetstreamDistributedLock.create(nats, {
     namespace: 'my-app',
-    lockTimeoutMs: 5000,    // Lock expires after 5 seconds
-    objectExpiryMs: 300000  // Objects expire after 5 minutes (optional)
+    defaultLockDurationMs: 5000, // lock expires after 5 seconds
+    objectExpiryMs: 300000       // objects expire after 5 minutes (optional)
 })
 
 // do your stuff
 
 lock.close()
-await nats.close() // nats client is not managed by the instance
+await nats.close()  // nats client is not managed by the instance
 ```
 
 The Nats implementation uses:
@@ -120,7 +118,7 @@ The Nats implementation uses:
 - K/V stream consumer for lock release notifications
 - Stream message TTL for object expiry, manual lock timeout enforcement
 
-Jetstream uses RAFT consensus under the hood for stream state consistency, which provides strong CP consistency under network partition (and some fault tolernace for high availability, using 3/5 replicas). 
+Jetstream uses RAFT consensus under the hood for stream state consistency, which provides strong CP consistency under network partition (and some fault tolernace for high availability, using 3/5 replicas). K/V updates allow an optional `priorSeqId` validating the prior state of the key, which serves as a fencing token for safety guarantees.
 
 ### Redis
 ```typescript
@@ -130,14 +128,14 @@ import Redis from 'ioredis';
 const redis = new Redis('redis://localhost:6379')
 const lock = await RedisDistributedLock.create(redis, {
     namespace: 'my-app',
-    lockTimeoutMs: 5000,    // Lock expires after 5 seconds
-    objectExpiryMs: 300000  // Objects expire after 5 minutes (optional)
+    defaultLockDurationMs: 5000, // lock expires after 5 seconds
+    objectExpiryMs: 300000       // objects expire after 5 minutes (optional)
 });
 
 // do your stuff
 
 lock.close()
-await redis.quit() // redis client is not managed by the instance
+await redis.quit()  // redis client is not managed by the instance
 ```
 
 The Redis implementation uses:
@@ -160,9 +158,8 @@ However, this feature comes with a **significant** performance tradeoff, and is 
 
 1. **Keep Lock Times Short**: Minimize the duration locks are held to reduce contention
 2. **Use Appropriate Timeouts**: Set timeouts based on the expected duration of state updates
-3. **Handle Errors**: Always implement proper error handling when manually locking/unlocking (or use `withLock` for convenience) to avoid relying on timeouts
-4. **Be Diligent With Resources**: Generally you should only need one `DistributedLock` instance per server (per namespace). Always clean up by calling `close()` when shutting down your application
-5. **Use Namespaces**: Isolate application locks to avoid collisions
+3. **Handle Errors**: Always implement proper error handling when manually locking/unlocking (or use `withLock` for convenience)
+4. **Use Namespaces**: Isolate application locks to avoid collisions
 
 ## Running Tests
 
@@ -178,4 +175,4 @@ npm run test
 
 ## License
 
-MIT License - see LICENSE file for details
+MIT License 
