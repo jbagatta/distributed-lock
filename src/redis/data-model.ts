@@ -12,7 +12,7 @@ export const redisPubSubChannel =
 //   objKey = data-store.namespacedKey
 // ARGV[1] = lockId
 // ARGV[2] = lockTimeoutMs
-export const tryAcquireLockLuaScript = ` \
+export const tryAcquireLockLuaScript = (replication = 1) => ` \
   local exists = redis.call('EXISTS', KEYS[1]) \
   local objKey = '${lockObjKeyPrefix}' .. KEYS[1] \
   local lockObj = redis.call('GET', objKey) \
@@ -26,6 +26,9 @@ export const tryAcquireLockLuaScript = ` \
         local lockStatus = redis.call('HGET', KEYS[1], '${lockStatusField}') \
         return {lockId, lockStatus, lockObj} \
   end \
+  if (${replication} > 1) then \
+    redis.call('WAIT', ${replication-1}, 0) \
+  end \
 `
 
 // KEYS[1] = namespacedKey
@@ -33,7 +36,7 @@ export const tryAcquireLockLuaScript = ` \
 // ARGV[1] = lockId
 // ARGV[2] = lockObj
 // ARGV[3] = objectExpiryMs
-export const tryWriteLockLuaScript = ` \
+export const tryWriteLockLuaScript = (replication = 1) => ` \
   local exists = redis.call('EXISTS', KEYS[1]) \
   if (exists == 1 and redis.call('HGET', KEYS[1], '${lockIdField}') == ARGV[1]) then \
       local objKey = '${lockObjKeyPrefix}' .. KEYS[1] \
@@ -47,6 +50,9 @@ export const tryWriteLockLuaScript = ` \
       return true \
   else \
       return false \
+  end \
+  if (${replication} > 1) then \
+    redis.call('WAIT', ${replication}, 0) \
   end \
 `
 

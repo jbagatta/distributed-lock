@@ -12,6 +12,7 @@ export interface LockConfiguration {
     namespace: string
     defaultLockDurationMs: number
     objectExpiryMs?: number
+    replication?: number
 }
 
 /**

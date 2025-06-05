@@ -98,7 +98,7 @@ export class RedisDistributedLock implements IDistributedLock {
 
     private async getOrCreateLock<T>(namespacedKey: string, lockId: string, timeout: number) {
         const result = await this.redis.eval(
-            tryAcquireLockLuaScript,
+            tryAcquireLockLuaScript(this.config.replication),
             1,
             namespacedKey,
             lockId,
@@ -118,7 +118,7 @@ export class RedisDistributedLock implements IDistributedLock {
         
         const obj = JSON.stringify(lockObj.value)
         const result = await this.redis.eval(
-            tryWriteLockLuaScript, 
+            tryWriteLockLuaScript(this.config.replication), 
             1, 
             namespacedKey, 
             lockObj.lockId, 

@@ -48,7 +48,7 @@ export class JetstreamDistributedLock implements IDistributedLock {
       history: 1,
       ttl: config.objectExpiryMs ? nanos(config.objectExpiryMs) : undefined,
       storage: StorageType.Memory,
-      replicas: 1
+      replicas: config.replication
     })
   
     console.log(`JetstreamDistributedLock created namespace ${config.namespace}: ${JSON.stringify(await kv.status())}`)
