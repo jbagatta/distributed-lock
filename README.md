@@ -22,6 +22,7 @@ interface LockConfiguration {
     namespace: string;       // Prefix for all keys in the backend
     lockTimeoutMs: number;   // How long locks are held before auto-expiry
     objectExpiryMs?: number; // Optional: How long objects persist after last access
+    replication?: number;    // Optional: replication for the nats or redis cluster
 }
 ```
 
@@ -147,9 +148,13 @@ The Redis implementation uses:
 - Redis Pub/Sub for lock release notifications
 - Key expiration for both object and lock timeouts
 
-As opposed to Jetstream, Redis replication does not inherently support strong CP consistency because replication is asynchronous by default. Redis 3.0 introduced the `WAIT` command to enforce synchronous replication to a certain number of replicas before acknowledging a write, but even this doesn't wholly solve the underlying problem, since the replication is not a rigorously CP operation (in the way that RAFT consensus is). The primary server and some replicas may differ from other replicas if the primary crashes in the middle of a `WAIT` command that has not yet replicated data to all replicas. The resulting state of the lock and the object itself is then indeterminate, since it depends on which replica is promoted to primary, and whether or not it received the replication of that data.
+As opposed to Jetstream, Redis replication does not, by default, support strong CP consistency because replication is asynchronous. Fortunately, the use of fencing tokens provides write-lock consistency despite the above race condition. The fencing tokens are atomic with the lock data itself, so while a process may lose a lock it believes it maintains in the event of primary server crash, that process will not be able to write any data with the lost lock. Mutual exclusion and atomicity are maintained in this case, which may not be systemically "fair", but remains consistent and deterministic.
 
-Fortunately, the use of fencing tokens provides consistency despite the above race condition. The fencing tokens are atomic with the lock data itself, so while a process may lose a lock it believes it maintains, that process will not be able to write any data with the lost lock. Mutual exclusion and atomicity are maintained in this cases, which may not be fair but remains strongly consistent and deterministic.
+However, this does not guarantee read consistency. Consider the case of a primary server crashing in the middle of replication: some replicas may differ from others, and from the primary. The resulting state of the lock and the data itself is then indeterminate, since it depends on which replica is promoted to primary, and whether or not it received the replication of that data. It is thus possible that some reads occurred against the old primary which returned data that is no longer consistent with the new primary.
+
+Redis 3.0 introduced the `WAIT` command to enforce synchronous replication to a certain number of replicas before returning. Johnny Locke support the `WAIT` command by setting the `replication` configuration value above 1. This will ensure that data writes are replicated synchronously, so as long as the Redis cluster is configured to allow reads ONLY against the primary, this edge case is eliminated and strong consistency is maintained. 
+
+However, this feature comes with a **significant** performance tradeoff, and is only recommended if you TRULY need it (and if you aren't sure, you almost certainly *don't*). Refer to the [Redis replication docs](https://redis.io/docs/latest/operate/oss_and_stack/reference/cluster-spec/#scaling-reads-using-replica-nodes) for more details on how to configure the cluster to disable reads against replicas.
 
 ## Best Practices
 

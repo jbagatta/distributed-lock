@@ -20,14 +20,14 @@ export const tryAcquireLockLuaScript = (replication = 1) => ` \
         redis.call('HSET', KEYS[1], '${lockIdField}', ARGV[1]) \
         redis.call('PEXPIRE', KEYS[1], ARGV[2]) \
         redis.call('HSET', KEYS[1], '${lockStatusField}', 'locked') \
+        if (${replication} > 1) then \
+          redis.call('WAIT', ${replication-1}, 0) \
+        end \
         return {ARGV[1], 'locked', lockObj} \
   else \
         local lockId = redis.call('HGET', KEYS[1], '${lockIdField}') \
         local lockStatus = redis.call('HGET', KEYS[1], '${lockStatusField}') \
         return {lockId, lockStatus, lockObj} \
-  end \
-  if (${replication} > 1) then \
-    redis.call('WAIT', ${replication-1}, 0) \
   end \
 `
 
@@ -47,12 +47,12 @@ export const tryWriteLockLuaScript = (replication = 1) => ` \
           redis.call('PEXPIRE', objKey, ARGV[3]) \
       end \
       redis.call('HSET', KEYS[1], '${lockStatusField}', 'unlocked') \
+      if (${replication} > 1) then \
+        redis.call('WAIT', ${replication-1}, 0) \
+      end \
       return true \
   else \
       return false \
-  end \
-  if (${replication} > 1) then \
-    redis.call('WAIT', ${replication}, 0) \
   end \
 `
 
