@@ -22,15 +22,17 @@ interface LockConfiguration {
     namespace: string;                 // Prefix for all keys in the backend
     defaultLockDurationMs: number;     // How long locks are held before auto-expiry
     objectExpiryMs?: number; // Optional: How long objects persist after last access
-    replication?: number;    // Optional: replication for the nats or redis cluster
+    replication?: number;    // Optional: Replication for the nats or redis cluster
 }
 ```
 
-### `withLock<T>(key: string, timeoutMs: number, callback: (state: T | null) => Promise<T>): Promise<Readable<T>>`
+### `withLock<T>(key: string, timeoutMs: number, callback: (state: T | null) => Promise<T>, lockDuration?: number): Promise<Readable<T>>`
 
 Acquires a lock and executes the callback against the current object state. Automatically releases the lock regardless of success, error or timeout.
 
 The callback is passed the current value of the locked object (or null, if it's a new lock). The value returned by the callback is written back as an atomic update to the locked object.
+
+`timeoutMs` tells the library how long to wait to try and *acquire the lock*, not how long to *hold it once required* (which is configured globally via `LockConfiguration.defaultLockDurationMs` or optionally overridden by the `lockDuration` parameter if desired)
 
 ```typescript
 const result = await lock.withLock<number>('my-key', 1000, async (state) => {
@@ -42,11 +44,11 @@ const result = await lock.withLock<number>('my-key', 1000, async (state) => {
 });
 ```
 
-### `acquireLock<T>(key: string, timeoutMs: number): Promise<Writable<T>>`
+### `acquireLock<T>(key: string, timeoutMs: number, lockDuration?: number): Promise<Writable<T>>`
 
 Manually acquires a lock and returns a writable state handle. Useful for long-running operations. 
 
-The timeout provided tells the library how long to wait to *acquire the lock*, not how long to *hold it once required* (which is configured globally via `LockConfiguration.lockTimeoutMs`)
+`timeoutMs` tells the library how long to wait to try and *acquire the lock*, not how long to *hold it once required* (which is configured globally via `LockConfiguration.defaultLockDurationMs` or optionally overridden by the `lockDuration` parameter if desired)
 
 ### `releaseLock<T>(key: string, Writable<T>): Promise<boolean>`
 
@@ -68,7 +70,7 @@ try {
 }
 ```
 
-### `tryAcquireLock<T>(key: string): Promise<{acquired: boolean, value: Writable<T> | undefined}>`
+### `tryAcquireLock<T>(key: string, lockDuration?: number): Promise<{acquired: boolean, value: Writable<T> | undefined}>`
 
 Attempts to acquire the lock and immediately returns success or failure.
 
