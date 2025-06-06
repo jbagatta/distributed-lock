@@ -165,7 +165,7 @@ However, this feature comes with a **significant** performance tradeoff, and is 
 
 ## Running Tests
 
-Spin up a test environment with redis and nats servers using docker compose:
+Spin up a test environment with Redis and Nats servers using docker compose:
 ```
 docker compose -f tests/docker-compose.yml up -d
 ```
